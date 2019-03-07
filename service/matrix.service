@@ -1,0 +1,13 @@
+[Unit]
+Description=Python DFI LED-Matrix
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/dm_tomatrixled
+EnvironmentFile=/home/pi/dm_tomatrixled/service/run.env
+ExecStart=/bin/bash /home/pi/dm_tomatrixled/service/run.sh
+KillSignal=SIGINT
+Restart=on-failure
+[Install]
+WantedBy=default.target
