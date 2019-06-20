@@ -16,7 +16,7 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 from dm_drawstuff import clockstr_tt, colorppm, drawppm_centered, drawppm_bottomleft, drawppm_bottomright, drawverticaltime, makechristmasfn
 from dm_areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm_lines import MultisymbolScrollline, SimpleScrollline, propscroll, textpx, fittext
-from dm_depdata import Departure, Meldung, MOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getd3d9msgdata
+from dm_depdata import Departure, Meldung, MOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
 
 
 ### Logging
@@ -33,7 +33,7 @@ if datafilelog:
 parser = ArgumentParser()
 parser.add_argument("-s", "--stop-ifopt", action="store", help="IFOPT reference of stop or area or platform. Default: de:05914:2114:0:1", default="de:05914:2114:0:1", type=str)
 parser.add_argument("--ibnr", action="store", help="IBNR. With this set, there will be train data only from DB and others only from EFA. (temporary parameter)", default="", type=str)
-parser.add_argument("--test-d3d9", action="store", help="Try to get data from d3d9.xyz like messages, brightness (test)", default="", type=str)
+parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
 parser.add_argument("-r", "--rightbar", action="store", help="Enable sidebar on the right side with additional info. Disables header clock. Value: type of rightbar (1: vertical clock (default if just -r); 2: clock with icon, wide; 3: clock with progress, VRR icon, allows scrolling through it", nargs="?", const=1, default=0, type=int)
@@ -351,8 +351,7 @@ maxkwaretries = 3
 efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
 
-d3d9id = args.test_d3d9  # tmp
-d3d9server = 'https://d3d9.xyz/dfi'
+ext_url = args.test_ext
 
 # z. B. Aufzugsmeldungen
 # ignore_infoTypes = {"stopInfo"}
@@ -518,9 +517,9 @@ def loop(matrix, pe):
         }
 
     depfunctions = depfun_efadb if dbrestibnr else depfun_efa
-    if d3d9id:
-        depfnlist_d3d9: type_depfnlist = [(getd3d9msgdata, [{'serverurl': d3d9server, 'timeout': servertimeout, 'dfi_id': d3d9id}])]
-        depfunctions.update({('d3d9-m+d', False): depfnlist_d3d9})
+    if ext_url:
+        depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
+        depfunctions.update({('ext-m+d', False): depfnlist_ext})
 
     logger.info(f"started loop with depfunctions {', '.join(x[0] for x in depfunctions.keys())}")
     while True:

@@ -20,6 +20,7 @@ from loguru import logger
 class Meldung:
     symbol: str
     text: str
+    color: Optional[str] = None
     efa: bool = False
     # blocking: bool = False
 
@@ -393,12 +394,12 @@ def getdbrestdeps(serverurl: str, timeout: Union[int, float], ibnr: str, limit: 
     return result
 
 
-def getd3d9msgdata(serverurl: str, dfi_id: str, timeout: Union[int, float]) -> type_depmsgdata:
+def getextmsgdata(url: str, timeout: Union[int, float]) -> type_depmsgdata:
     messages: List[Meldung] = []
     data: type_data = {}
-    r = get(f"{serverurl}/{dfi_id}", timeout=timeout)
+    r = get(url, timeout=timeout)
     if r.status_code == 404:
-        logger.warning(f"ignoring 404 for {serverurl}/{dfi_id}, returning nothing")
+        logger.warning(f"ignoring 404 for {url}, returning nothing")
     else:
         r.raise_for_status()
         try:
@@ -406,8 +407,16 @@ def getd3d9msgdata(serverurl: str, dfi_id: str, timeout: Union[int, float]) -> t
             # example:
             # {
             #     "messages": [
-            #                     ["info", "Testinformation"],
-            #                     ["ad", "Testwerbung"]
+            #                     {
+            #                         "symbol": "info",
+            #                         "text": "Testinformation",
+            #                         "color": undefined
+            #                     },
+            #                     {
+            #                         "symbol": "ad",
+            #                         "text": "Testwerbung",
+            #                         "color": "#00FFFF"
+            #                     }
             #                 ],
             #     "config": {
             #                   "brightness": 15
@@ -420,7 +429,7 @@ def getd3d9msgdata(serverurl: str, dfi_id: str, timeout: Union[int, float]) -> t
             # + guten weg finden, run.env/run.sh anzupassen, langfristig
             _json_msg = requestdata.get("messages")
             if _json_msg is not None:
-                messages = [Meldung(symbol=symbol, text=text) for symbol, text in _json_msg]
+                messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color")) for msg in _json_msg]
             _json_config = requestdata.get("config")
             if _json_config is not None:
                 data = _json_config

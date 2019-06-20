@@ -17,6 +17,7 @@ class MultisymbolScrollline:
     class __Element:
         text: str
         symbol: Image.Image
+        textcolor: graphics.Color
         initial_pretext: int
         initial_posttext: int
         letters_passed: int = field(init=False, default=0)
@@ -34,13 +35,13 @@ class MultisymbolScrollline:
             self.letters_passed = 0
             self.curr_textxoffset = 0
 
-    def __init__(self, lx, rx, symoffset, font, textcolor, symdict, bgcolor_t=None, initial_pretext=2, initial_posttext=5, pretext_zero_if_no_symbol=True, add_end_spacer=True):
+    def __init__(self, lx, rx, symoffset, font, defaulttextcolor, symdict, bgcolor_t=None, initial_pretext=2, initial_posttext=5, pretext_zero_if_no_symbol=True, add_end_spacer=True):
         # attributes
         self.lx = lx
         self.rx = rx
         self.symoffset = symoffset
         self.font = font
-        self.textcolor = textcolor
+        self.defaulttextcolor = defaulttextcolor
         self.symdict = symdict
         self.bgcolor = graphics.Color(*bgcolor_t) if bgcolor_t else graphics.Color()
         self.initial_posttext = initial_posttext
@@ -73,6 +74,7 @@ class MultisymbolScrollline:
             _symbol = self.symdict and self.symdict.get(meldung.symbol) or None
             self.elements.append(self.__class__.__Element(text=''.join(_char for _char in meldung.text if characterwidth(self.font, ord(_char))),
                                                           symbol=_symbol,
+                                                          textcolor=graphics.Color(*(int(meldung.color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))) if meldung.color else self.defaulttextcolor,
                                                           initial_pretext=self.initial_pretext if (_symbol is not None or not self.pretext_zero_if_no_symbol) else 0,
                                                           initial_posttext=self.initial_posttext))
         if self.elements:
@@ -81,7 +83,7 @@ class MultisymbolScrollline:
             if self.add_end_spacer:
                 self.elements[-1].initial_posttext = 0
                 self.elements[-1].posttext = 0
-                self.elements.append(self.__class__.__Element(text='', symbol=None, initial_pretext=0, initial_posttext=self.startpos-self.lx))
+                self.elements.append(self.__class__.__Element(text='', symbol=None, textcolor=self.defaulttextcolor, initial_pretext=0, initial_posttext=self.startpos-self.lx))
 
     def render(self, canvas: FrameCanvas, texty: int) -> None:
         if not self.elements:
@@ -109,14 +111,14 @@ class MultisymbolScrollline:
                         currx += elem.curr_textxoffset
                     if text_max:
                         if isleftelem:
-                            currx += graphics.DrawText(canvas, self.font, currx, texty, self.textcolor, elem.text[elem.letters_passed:elem.letters_passed+text_max]) - 1
+                            currx += graphics.DrawText(canvas, self.font, currx, texty, elem.textcolor, elem.text[elem.letters_passed:elem.letters_passed+text_max]) - 1
                             if not elem.pretext:
                                 elem.curr_textxoffset -= 1
                             if elem.curr_textxoffset < 0:
                                 elem.curr_textxoffset = characterwidth(self.font, ord(elem.text[elem.letters_passed])) - 1
                                 elem.letters_passed += 1
                         else:
-                            currx += graphics.DrawText(canvas, self.font, currx, texty, self.textcolor, elem.text[:text_max]) - 1
+                            currx += graphics.DrawText(canvas, self.font, currx, texty, elem.textcolor, elem.text[:text_max]) - 1
                     else:  # if ((not elem.text) or (isleftelem and elem.letters_passed = len(elem.text))):
                         if isleftelem and elem.posttext < 0 and elem.symbol is not None:
                             _thissize = elem.symbol.size[0]
