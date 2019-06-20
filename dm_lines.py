@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Optional
+from re import Pattern, match as re_match
+from typing import List, Optional, Callable, Tuple
 
 from PIL import Image
 from rgbmatrix import graphics
@@ -217,3 +218,53 @@ def characterwidth(font: graphics.Font, cp: int) -> int:
         if _cw == -1:
             _cw = 0
     return _cw
+
+
+_retexttype = Callable[[type(re_match("", ""))], str]
+
+@lru_cache(maxsize=64)
+def fittext(text: str,
+            avail_width: int,
+            start: int,
+            end: int,
+            normalfont: graphics.Font,
+            smallfont: graphics.Font,
+            smallpxoffset: int = 0,
+            alt_text: str = None,
+            pattern: Optional[Pattern] = None,
+            alt_retext_1: Optional[_retexttype] = None,
+            alt_retext_2: Optional[_retexttype] = None
+            ) -> Tuple[graphics.Font, str, int, int]:
+    _font = normalfont
+    _text = text
+    _textpx = textpx(_font, _text)
+    _roff = 0
+    if _textpx > avail_width:
+        shownchars_normal = propscroll(normalfont, _text, start, end)
+        shownchars_small = propscroll(smallfont, _text, start, end)
+        _search = pattern.search(_text) if pattern is not None else None
+        if _search is not None:
+            _text = alt_retext_1(_search)
+            shownchars_normal = propscroll(normalfont, _text, start, end)
+            shownchars_small = propscroll(smallfont, _text, start, end)
+            if shownchars_small < len(_text):
+                _text = alt_retext_2(_search)
+                shownchars_normal = propscroll(normalfont, _text, start, end)
+                shownchars_small = propscroll(smallfont, _text, start, end)
+        elif alt_text is not None and shownchars_small < len(_text):
+            _text = _text.replace(" ", "")
+            shownchars_normal = propscroll(normalfont, _text, start, end)
+            shownchars_small = propscroll(smallfont, _text, start, end)
+            if shownchars_small < len(_text):
+                _text = alt_text
+                shownchars_normal = propscroll(normalfont, _text, start, end)
+                shownchars_small = propscroll(smallfont, _text, start, end)
+        if shownchars_small > shownchars_normal and not _text[shownchars_small-1] in {'(', '/'}:
+            _text = _text[:shownchars_small]
+            _font = smallfont
+            _roff = smallpxoffset
+        else:
+            _text = _text[:shownchars_normal]
+            _font = normalfont
+        _textpx = textpx(_font, _text)
+    return _font, _text, _textpx, _roff

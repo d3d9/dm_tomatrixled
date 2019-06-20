@@ -15,7 +15,7 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
 from dm_drawstuff import clockstr_tt, colorppm, drawppm_centered, drawppm_bottomleft, drawppm_bottomright, drawverticaltime, makechristmasfn
 from dm_areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
-from dm_lines import MultisymbolScrollline, SimpleScrollline, propscroll, textpx
+from dm_lines import MultisymbolScrollline, SimpleScrollline, propscroll, textpx, fittext
 from dm_depdata import Departure, Meldung, MOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getd3d9msgdata
 
 
@@ -44,6 +44,7 @@ parser.add_argument("-d", "--daemon", action="store_true", help="Run as daemon")
 parser.add_argument("-l", "--line-height", action="store", help="Departure line height. Default: 8", default=8, type=int)
 parser.add_argument("-f", "--firstrow-y", action="store", help="(text_startr) Where to start with the rows vertically (bottom pixel). Default: 6", default=6, type=int)
 parser.add_argument("-w", "--linenum-width", action="store", help="pixels for line number. Default: 20", default=20, type=int)
+parser.add_argument("--platform-width", action="store", help="pixels for platform, 0 to disable. Default: 0", default=0, type=int)
 parser.add_argument("--place-string", action="append", help="Strings that are usually at the beginning of stop names, to be filtered out (for example (default:) \"Hagen \", \"HA-\")", default=[], type=str, dest="place_strings")
 parser.add_argument("--ignore-infotype", action="append", help="EFA: ignore this 'infoType' (can be used multiple times)", default=[], type=str)
 parser.add_argument("--ignore-infoid", action="append", help="EFA: ignore this 'infoID' (can be used multiple times)", default=[], type=str)
@@ -163,7 +164,7 @@ else:
 # matrixbgColor_t = (0, 16, 19)
 matrixbgColor_t = None
 textColor = graphics.Color(255, 65, 0)
-texthighlightColor = graphics.Color(255, 30, 0)
+texthighlightColor = graphics.Color(255, 20, 0)
 rtnoColor = graphics.Color(190, 190, 190)
 rtColor = graphics.Color(0, 255, 0)
 rtslightColor = graphics.Color(255, 255, 0)
@@ -184,6 +185,8 @@ linenum_width = args.linenum_width
 linenumheight = fontlinenum.height - 1
 linenum_normalsmalloffset = 1  # in zukunft einfach nur vertikal zentrieren?
 linenum_drawbg = True
+linenum_retext_1 = lambda _s: _s.group(1)+_s.group(2)
+linenum_retext_2 = lambda _s: _s.group(1)
 
 ### PPM
 
@@ -303,6 +306,8 @@ zerobus = args.show_zero
 stopsymbol = True
 melsymbol = True
 
+platformwidth = args.platform_width
+
 rightbar = bool(args.rightbar)
 rightbarcolor = rtnoColor
 scrollmsg_through_rightbar = False
@@ -329,7 +334,9 @@ elif args.rightbar in {2, 3}:
 spacedt = 1
 # Abstand Liniennummer - Ziel
 spaceld = 2
-# Abstand Zeit - rechter Bereich
+# Abstand Zeit - Steig (falls platformwidth > 0)
+spacetp = 1
+# Abstand Abfahrtsinfo (bis Zeit bzw. Steig usw.) zum rechten Bereich (Uhr, Logo, Wetter usw.)
 spacetr = 1
 
 header_spacest = 1
@@ -406,6 +413,12 @@ def loop(matrix, pe):
 
     # tmp
     deptime_x_max = x_max
+
+    if platformwidth:
+        deptime_x_max -= (spacetp + platformwidth)
+
+    platform_min = deptime_x_max + spacetp + 1
+    platform_max = platform_min + platformwidth - 1
 
     deps: List[Departure] = []
     meldungs: List[Meldung] = []
@@ -576,30 +589,17 @@ def loop(matrix, pe):
                 for y in range(r-linenumheight, r):
                     graphics.DrawLine(canvas, linenum_min, y, linenum_max, y, linebgColor)
 
-            _lnfont = fontlinenum
-            linenumstr = dep.disp_linenum
-            linenumpx = textpx(_lnfont, linenumstr)
-            _roff = 0
-            if linenumpx > linenum_width:
-                shownchars_normal = propscroll(fontlinenum, linenumstr, linenum_min, linenum_max)
-                shownchars_small = propscroll(fontnum, linenumstr, linenum_min, linenum_max)
-                _search = linenumpattern.search(linenumstr)
-                if _search is not None:
-                    linenumstr = _search.group(1)+_search.group(2)
-                    shownchars_normal = propscroll(fontlinenum, linenumstr, linenum_min, linenum_max)
-                    shownchars_small = propscroll(fontnum, linenumstr, linenum_min, linenum_max)
-                    if shownchars_small < len(linenumstr):
-                        linenumstr = _search.group(1)
-                        shownchars_normal = propscroll(fontlinenum, linenumstr, linenum_min, linenum_max)
-                        shownchars_small = propscroll(fontnum, linenumstr, linenum_min, linenum_max)
-                if shownchars_small > shownchars_normal and not linenumstr[shownchars_small-1] in {'(', '/'}:
-                    linenumstr = linenumstr[:shownchars_small]
-                    _lnfont = fontnum
-                    _roff = linenum_normalsmalloffset
-                else:
-                    linenumstr = linenumstr[:shownchars_normal]
-                    _lnfont = fontlinenum
-                linenumpx = textpx(_lnfont, linenumstr)
+            _lnfont, linenumstr, linenumpx, _roff = fittext(
+                dep.disp_linenum,
+                linenum_width,
+                linenum_min,
+                linenum_max,
+                fontlinenum,
+                fontnum,
+                smallpxoffset=linenum_normalsmalloffset,
+                pattern=linenumpattern,
+                alt_retext_1=linenum_retext_1,
+                alt_retext_2=linenum_retext_2)
             graphics.DrawText(canvas, _lnfont, linenum_max - linenumpx + (linenumpx == linenum_width), r-_roff, linefgColor, linenumstr)
 
             color = rtnoColor
@@ -636,6 +636,20 @@ def loop(matrix, pe):
                 if mintext:
                     drawppm_bottomright(canvas, ppmmincolordict[color], deptime_x_max, r, transp=True)
                     timeoffset += ppm_whitemin.size[0] + minoffset
+
+            if platformwidth > 0 and dep.platformno:
+                platprefix = dep.platformtype or ("Gl." if dep.mot in trainMOT else "Bstg.")
+                _platfont, platstr, platpx, _roff = fittext(
+                    platprefix + str(dep.platformno),
+                    platformwidth,
+                    platform_min,
+                    platform_max,
+                    fontcountdown,
+                    fontnum,
+                    smallpxoffset=linenum_normalsmalloffset,
+                    alt_text=str(dep.platformno))
+                platformchanged = dep.platformno_planned and (dep.platformno_planned != dep.platformno)
+                graphics.DrawText(canvas, _platfont, platform_max - platpx + 1, r-_roff, texthighlightColor if platformchanged else textColor, platstr)
 
             # erweiterbar
             if dep.earlytermination:
