@@ -554,8 +554,8 @@ def loop(matrix, pe):
                     matrix.brightness = _brightness
             finally:
                 joined = True
-                for _li in range(limit):
-                    deplines[_li].update(deps[_li] if _li < len(deps) else None)
+                for _dli, _depline in enumerate(deplines):
+                    _depline.update(deps[_dli] if _dli < len(deps) else None)
                 meldung_scroller.update(meldungs)
 
         blinkstep = i % 40 < 20
@@ -577,7 +577,7 @@ def loop(matrix, pe):
 
             r += lineheight
 
-        for dep_i in range(limit-bool(meldungs)-header):
+        for dep_i in range(min(len(deplines), limit - bool(meldungs) - header)):
             deplines[dep_i].render(canvas, r, blinkon)
             r += lineheight
 
