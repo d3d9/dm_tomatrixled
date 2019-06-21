@@ -15,8 +15,8 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
 from dm_drawstuff import clockstr_tt, colorppm, drawppm_centered, drawppm_bottomleft, drawppm_bottomright, drawverticaltime, makechristmasfn
 from dm_areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
-from dm_lines import MultisymbolScrollline, SimpleScrollline, propscroll, textpx, fittext
-from dm_depdata import Departure, Meldung, MOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
+from dm_lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, propscroll, textpx, fittext
+from dm_depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
 
 
 ### Logging
@@ -182,7 +182,7 @@ linefgColor = textColor
 ### linenum
 
 linenum_width = args.linenum_width
-linenumheight = fontlinenum.height - 1
+linenum_height = fontlinenum.height - 1
 linenum_normalsmalloffset = 1  # in zukunft einfach nur vertikal zentrieren?
 linenum_drawbg = True
 linenum_retext_1 = lambda _s: _s.group(1)+_s.group(2)
@@ -220,8 +220,8 @@ nolinenumicons = False
 
 supportedlnlhs = (6, 7)
 defaultppmlnlh = 6
-ppmlinenumh = linenumheight if linenumheight in supportedlnlhs else defaultppmlnlh
-linenumicons = (not nolinenumicons) and linenumheight in supportedlnlhs
+ppmlinenumh = linenum_height if linenum_height in supportedlnlhs else defaultppmlnlh
+linenumicons = (not nolinenumicons) and linenum_height in supportedlnlhs
 
 ppm_whiteice = Image.open(f"{ppmdir}icon-ice{ppmlinenumh}.ppm")
 ppm_whiteic = Image.open(f"{ppmdir}icon-ic{ppmlinenumh}.ppm")
@@ -306,7 +306,7 @@ zerobus = args.show_zero
 stopsymbol = True
 melsymbol = True
 
-platformwidth = args.platform_width
+platform_width = args.platform_width
 
 rightbar = bool(args.rightbar)
 rightbarcolor = rtnoColor
@@ -330,14 +330,14 @@ elif args.rightbar in {2, 3}:
         rightbarargs = (ppm_vrr, graphics.Color(50, 50, 50))  # , r_scroller)
         scrollmsg_through_rightbar = True
 
-# Abstand Ziel - Zeit
-spacedt = 1
 # Abstand Liniennummer - Ziel
 spaceld = 2
-# Abstand Zeit - Steig (falls platformwidth > 0)
-spacetp = 1
+# Abstand Ziel - Zeit
+spacedc = 1
+# Abstand Zeit - Steig (falls platform_width > 0)
+spacecp = 1
 # Abstand Abfahrtsinfo (bis Zeit bzw. Steig usw.) zum rechten Bereich (Uhr, Logo, Wetter usw.)
-spacetr = 1
+spaceDr = 1
 
 header_spacest = 1
 
@@ -363,9 +363,6 @@ ignore_infoIDs = set(args.ignore_infoid) if args.ignore_infoid else None
 
 content_for_short_titles = True
 
-trainTMOTefa = {0, 1, 13, 14, 15, 16, 18}
-trainMOT = {MOT.TRAIN, MOT.HISPEED}
-
 dbrestserver = 'http://d3d9.xyz:3000'
 dbrestserver_backup = 'https://2.db.transport.rest'
 dbrestibnr = args.ibnr
@@ -390,18 +387,15 @@ drawchristmas = makechristmasfn(maxrgb, randspeed, ptrgb, ptspeed, ptlen, ptscal
 
 ### End of configuration
 
-
 def loop(matrix, pe):
     i = 0
     # canvas und loop setup
     canvas = matrix.CreateFrameCanvas(writeppm)
     x_min = 0
     y_min = 0
-    x_max = canvas.width - 1 - (rightbar and (rightbarwidth + spacetr))
+    x_max = canvas.width - 1 - (rightbar and (rightbarwidth + spaceDr))
     y_max = canvas.height - 1
 
-    linenum_min = x_min
-    linenum_max = linenum_min + linenum_width - 1
     limit = (y_max - y_min + 1 - text_startr - fonttext.height + fonttext.baseline + lineheight) // lineheight
     x_pixels = x_max - x_min + 1
 
@@ -409,15 +403,6 @@ def loop(matrix, pe):
     # xmax hier muss man eigentlich immer neu berechnen
     scrollx_stop_xmax = x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(currenttime)))
     stop_scroller = SimpleScrollline(x_min, scrollx_stop_xmax, symtextoffset, fonttext, lighttextColor, noscroll=not headerscroll)
-
-    # tmp
-    deptime_x_max = x_max
-
-    if platformwidth:
-        deptime_x_max -= (spacetp + platformwidth)
-
-    platform_min = deptime_x_max + spacetp + 1
-    platform_max = platform_min + platformwidth - 1
 
     deps: List[Departure] = []
     meldungs: List[Meldung] = []
@@ -521,6 +506,13 @@ def loop(matrix, pe):
         depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
         depfunctions.update({('ext-m+d', False): depfnlist_ext})
 
+    linenumopt = LinenumOptions(linenum_width, linenum_height, fontlinenum, fontnum, linenum_normalsmalloffset, linenum_drawbg, linebgColor, linefgColor, linenumpattern, linenum_retext_1, linenum_retext_2)
+    countdownopt = CountdownOptions(fontcountdown, ppm_ausfall, ppmmotdict, ppmmotcolordict, ppm_whitemin, ppmmincolordict, mindelay, minslightdelay, maxmin, zerobus, mintext, minoffset)
+    platformopt = PlatformOptions(platform_width, textColor, texthighlightColor, fontcountdown, fontnum, linenum_normalsmalloffset)
+    realtimecolors = RealtimeColors(rtnoColor, rtColor, rtslightColor, rtlateColor, rtnegativeColor)
+    deplines = [StandardDepartureLine(x_min, x_max, fonttext, textColor, texthighlightColor, spaceld, spacedc, spacecp, linenumopt, countdownopt, platformopt, realtimecolors)
+                for _ in range(limit)]
+
     logger.info(f"started loop with depfunctions {', '.join(x[0] for x in depfunctions.keys())}")
     while True:
         # time_measure = monotonic()
@@ -572,7 +564,7 @@ def loop(matrix, pe):
 
         if rightbar:
             # x_min, y_min usw. fehlen
-            rightbarfn(canvas, x_max+1+spacetr, 0, rightbarwidth, rightbarfont, rightbarcolor, i, step, currenttime, *rightbarargs)
+            rightbarfn(canvas, x_max+1+spaceDr, 0, rightbarwidth, rightbarfont, rightbarcolor, i, step, currenttime, *rightbarargs)
 
         if header:
             stop_scroller.update(ppm_stop if stopsymbol else None, headername or (deps and deps[0].stopname) or "")
@@ -583,83 +575,8 @@ def loop(matrix, pe):
 
             r += lineheight
 
-        for dep in deps[:(limit-bool(meldungs)-header)]:
-            if linenum_drawbg:
-                for y in range(r-linenumheight, r):
-                    graphics.DrawLine(canvas, linenum_min, y, linenum_max, y, linebgColor)
-
-            _lnfont, linenumstr, linenumpx, _roff = fittext(
-                dep.disp_linenum,
-                linenum_width,
-                linenum_min,
-                linenum_max,
-                fontlinenum,
-                fontnum,
-                smallpxoffset=linenum_normalsmalloffset,
-                pattern=linenumpattern,
-                alt_retext_1=linenum_retext_1,
-                alt_retext_2=linenum_retext_2)
-            graphics.DrawText(canvas, _lnfont, linenum_max - linenumpx + (linenumpx == linenum_width), r-_roff, linefgColor, linenumstr)
-
-            color = rtnoColor
-            if dep.realtime:
-                if dep.delay >= mindelay or dep.cancelled:
-                    color = rtlateColor
-                elif dep.delay >= minslightdelay:
-                    color = rtslightColor
-                elif dep.delay < 0:
-                    color = rtnegativeColor
-                else:
-                    color = rtColor
-
-            direction_x = linenum_max + 1 + spaceld
-            directionpixel = deptime_x_max - direction_x
-            timeoffset = 0
-
-            if dep.cancelled:
-                drawppm_bottomright(canvas, ppm_ausfall, deptime_x_max, r, transp=True)
-                timeoffset += ppm_ausfall.size[0]
-            elif dep.disp_countdown > maxmin:
-                timestr = clockstr_tt(dep.deptime.timetuple())
-                timestrpx = textpx(fontcountdown, timestr)
-                graphics.DrawText(canvas, fontcountdown, deptime_x_max - timestrpx + 1, r, color, timestr)
-                timeoffset += timestrpx
-            elif blinkon and dep.disp_countdown == 0 and zerobus:
-                drawppm_bottomright(canvas, ppmmotcolordict[dep.mot][color], deptime_x_max, r, transp=True)
-                timeoffset += ppmmotdict[dep.mot].size[0]
-            elif dep.disp_countdown or blinkon:
-                timestr = str(dep.disp_countdown)
-                timestrpx = textpx(fontcountdown, timestr)
-                graphics.DrawText(canvas, fontcountdown, deptime_x_max - timestrpx - ((ppm_whitemin.size[0]-1+minoffset) if mintext else -1), r, color, timestr)
-                timeoffset += timestrpx
-                if mintext:
-                    drawppm_bottomright(canvas, ppmmincolordict[color], deptime_x_max, r, transp=True)
-                    timeoffset += ppm_whitemin.size[0] + minoffset
-
-            if platformwidth > 0 and dep.platformno:
-                platprefix = dep.platformtype or ("Gl." if dep.mot in trainMOT else "Bstg.")
-                _platfont, platstr, platpx, _roff = fittext(
-                    platprefix + str(dep.platformno),
-                    platformwidth,
-                    platform_min,
-                    platform_max,
-                    fontcountdown,
-                    fontnum,
-                    smallpxoffset=linenum_normalsmalloffset,
-                    alt_text=str(dep.platformno))
-                platformchanged = dep.platformno_planned and (dep.platformno_planned != dep.platformno)
-                graphics.DrawText(canvas, _platfont, platform_max - platpx + 1, r-_roff, texthighlightColor if platformchanged else textColor, platstr)
-
-            # erweiterbar
-            if dep.earlytermination:
-                dirtextcolor = texthighlightColor
-            else:
-                dirtextcolor = textColor
-
-            directionpixel -= (timeoffset + spacedt*bool(timeoffset))
-            directionlimit = propscroll(fonttext, dep.disp_direction, direction_x, direction_x+directionpixel)
-            graphics.DrawText(canvas, fonttext, direction_x, r, dirtextcolor, dep.disp_direction[:directionlimit])
-
+        for dep_i, dep in enumerate(deps[:(limit-bool(meldungs)-header)]):
+            deplines[dep_i].render(canvas, dep, r, blinkon)
             r += lineheight
 
         if meldungs:

@@ -2,14 +2,14 @@
 from dataclasses import dataclass, field
 from functools import lru_cache
 from re import Pattern, match as re_match
-from typing import List, Optional, Callable, Tuple
+from typing import List, Optional, Callable, Tuple, Dict
 
 from PIL import Image
 from rgbmatrix import graphics
 from rgbmatrix.core import FrameCanvas
 
-from dm_drawstuff import drawppm_bottomleft
-from dm_depdata import Meldung
+from dm_drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_bottomright
+from dm_depdata import Departure, Meldung, MOT, trainMOT
 
 
 class MultisymbolScrollline:
@@ -192,6 +192,175 @@ class SimpleScrollline:
         else: graphics.DrawText(canvas, self.font, self.base_start_static, texty, self.textcolor, self.text[:self.text_max_theoretical])
 
 
+_retexttype = Callable[[type(re_match("", ""))], str]
+
+@dataclass
+class LinenumOptions:
+    width: int
+    height: int
+    normalFont: graphics.Font
+    smallFont: graphics.Font
+    normalsmalloffset: int
+    drawbg: bool
+    bgColor: graphics.Color
+    fgColor: graphics.Color
+    pattern: Pattern
+    retext_1: _retexttype
+    retext_2: _retexttype
+
+
+@dataclass
+class CountdownOptions:
+    font: graphics.Font
+    cancelled_symbol: Image.Image
+    mot_symbols: Dict[MOT, Image.Image]
+    mot_coloured_symbols: Dict[graphics.Color, Dict[MOT, Image.Image]]
+    min_symbol: Image.Image
+    min_coloured_symbols: Dict[graphics.Color, Image.Image]
+    mindelay: int
+    minslightdelay: int
+    maxmin: int
+    zerobus: bool
+    mintext: bool
+    minoffset: int
+
+
+@dataclass
+class PlatformOptions:
+    width: int
+    textColor: graphics.Color
+    texthighlightColor: graphics.Color
+    normalFont: graphics.Font
+    smallFont: graphics.Font
+    normalsmalloffset: int
+
+
+@dataclass
+class RealtimeColors:
+    no_realtime: graphics.Color
+    no_delay: graphics.Color
+    slight_delay: graphics.Color
+    high_delay: graphics.Color
+    negative_delay: graphics.Color
+
+
+class StandardDepartureLine:
+    def __init__(
+            self,
+            lx: int,
+            rx: int,
+            font: graphics.Font,
+            textColor: graphics.Color,
+            texthighlightColor: graphics.Color,
+            space_linenum_direction: int,
+            space_direction_countdown: int,
+            space_countdown_platform: int,
+            linenumopt: LinenumOptions,
+            countdownopt: CountdownOptions,
+            platformopt: PlatformOptions,
+            realtimecolors: RealtimeColors):
+        self.lx = lx
+        self.rx = rx
+        self.font = font
+        self.textColor = textColor
+        self.texthighlightColor = texthighlightColor
+        self.space_linenum_direction = space_linenum_direction
+        self.space_direction_countdown = space_direction_countdown
+        self.space_countdown_platform = space_countdown_platform
+        self.linenumopt = linenumopt
+        self.countdownopt = countdownopt
+        self.platformopt = platformopt
+        self.realtimecolors = realtimecolors
+
+    def render(self, canvas: FrameCanvas, dep: Departure, texty: int, blinkon: bool) -> None:
+        linenum_min = self.lx
+        linenum_max = linenum_min + self.linenumopt.width - 1
+
+        deptime_x_max = self.rx
+
+        if self.platformopt is not None and self.platformopt.width > 0:
+            deptime_x_max -= (self.space_countdown_platform + self.platformopt.width)
+
+        platform_min = deptime_x_max + self.space_countdown_platform + 1
+        platform_max = platform_min + self.platformopt.width - 1
+
+        if self.linenumopt.drawbg:
+            for y in range(texty-self.linenumopt.height, texty):
+                graphics.DrawLine(canvas, linenum_min, y, linenum_max, y, self.linenumopt.bgColor)
+
+        _lnfont, linenumstr, linenumpx, _roff = fittext(
+            dep.disp_linenum,
+            self.linenumopt.width,
+            linenum_min,
+            linenum_max,
+            self.linenumopt.normalFont,
+            self.linenumopt.smallFont,
+            smallpxoffset=self.linenumopt.normalsmalloffset,
+            pattern=self.linenumopt.pattern,
+            alt_retext_1=self.linenumopt.retext_1,
+            alt_retext_2=self.linenumopt.retext_2)
+        graphics.DrawText(canvas, _lnfont, linenum_max - linenumpx + (linenumpx == self.linenumopt.width), texty-_roff, self.linenumopt.fgColor, linenumstr)
+
+        direction_x = linenum_max + 1 + self.space_linenum_direction
+        directionpixel = deptime_x_max - direction_x
+        timeoffset = 0
+
+        color = self.realtimecolors.no_realtime
+        if dep.realtime:
+            if dep.delay >= self.countdownopt.mindelay or dep.cancelled:
+                color = self.realtimecolors.high_delay
+            elif dep.delay >= self.countdownopt.minslightdelay:
+                color = self.realtimecolors.slight_delay
+            elif dep.delay < 0:
+                color = self.realtimecolors.negative_delay
+            else:
+                color = self.realtimecolors.no_delay
+
+        if dep.cancelled:
+            drawppm_bottomright(canvas, self.countdownopt.cancelled_symbol, deptime_x_max, texty, transp=True)
+            timeoffset += self.countdownopt.cancelled_symbol.size[0]
+        elif dep.disp_countdown > self.countdownopt.maxmin:
+            timestr = clockstr_tt(dep.deptime.timetuple())
+            timestrpx = textpx(self.countdownopt.font, timestr)
+            graphics.DrawText(canvas, self.countdownopt.font, deptime_x_max - timestrpx + 1, texty, color, timestr)
+            timeoffset += timestrpx
+        elif blinkon and dep.disp_countdown == 0 and self.countdownopt.zerobus:
+            drawppm_bottomright(canvas, self.countdownopt.mot_coloured_symbols[dep.mot][color], deptime_x_max, texty, transp=True)
+            timeoffset += self.countdownopt.mot_symbols[dep.mot].size[0]
+        elif dep.disp_countdown or blinkon:
+            timestr = str(dep.disp_countdown)
+            timestrpx = textpx(self.countdownopt.font, timestr)
+            graphics.DrawText(canvas, self.countdownopt.font, deptime_x_max - timestrpx - ((self.countdownopt.min_symbol.size[0]-1+self.countdownopt.minoffset) if self.countdownopt.mintext else -1), texty, color, timestr)
+            timeoffset += timestrpx
+            if self.countdownopt.mintext:
+                drawppm_bottomright(canvas, self.countdownopt.min_coloured_symbols[color], deptime_x_max, texty, transp=True)
+                timeoffset += self.countdownopt.min_symbol.size[0] + self.countdownopt.minoffset
+
+        if self.platformopt is not None and self.platformopt.width > 0 and dep.platformno:
+            platprefix = dep.platformtype or ("Gl." if dep.mot in trainMOT else "Bstg.")
+            _platfont, platstr, platpx, _roff = fittext(
+                platprefix + str(dep.platformno),
+                self.platformopt.width,
+                platform_min,
+                platform_max,
+                self.platformopt.normalFont,
+                self.platformopt.smallFont,
+                smallpxoffset=self.platformopt.normalsmalloffset,
+                alt_text=str(dep.platformno))
+            platformchanged = dep.platformno_planned and (dep.platformno_planned != dep.platformno)
+            graphics.DrawText(canvas, _platfont, platform_max - platpx + 1, texty-_roff, self.platformopt.texthighlightColor if platformchanged else self.platformopt.textColor, platstr)
+
+        # erweiterbar
+        if dep.earlytermination:
+            dirtextcolor = self.texthighlightColor
+        else:
+            dirtextcolor = self.textColor
+
+        directionpixel -= (timeoffset + self.space_direction_countdown*bool(timeoffset))
+        directionlimit = propscroll(self.font, dep.disp_direction, direction_x, direction_x+directionpixel)
+        graphics.DrawText(canvas, self.font, direction_x, texty, dirtextcolor, dep.disp_direction[:directionlimit])
+
+
 # beides ohne extra_spacing
 @lru_cache(maxsize=4096)
 def propscroll(font: graphics.Font, text: str, start: int, end: int) -> int:
@@ -221,8 +390,6 @@ def characterwidth(font: graphics.Font, cp: int) -> int:
             _cw = 0
     return _cw
 
-
-_retexttype = Callable[[type(re_match("", ""))], str]
 
 @lru_cache(maxsize=64)
 def fittext(text: str,

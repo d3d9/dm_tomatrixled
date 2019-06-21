@@ -36,6 +36,9 @@ class MOT(Enum):
     BUS = 4
     HANGING = 5
 
+trainTMOTefa = {0, 1, 13, 14, 15, 16, 18}
+trainMOT = {MOT.TRAIN, MOT.HISPEED}
+
 
 class GetdepsEndAll(Exception):
     pass
