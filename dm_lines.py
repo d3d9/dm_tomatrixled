@@ -132,7 +132,7 @@ class MultisymbolScrollline:
                             elif not elem.pretext:
                                 elem.posttext -= 1
                         if elem.pretext: elem.pretext -= 1
-                        if elem.posttext <= ((elem.symbol is not None and -elem.symbol.size[0]) or 0):
+                        if elem.posttext <= ((elem.symbol is not None and -elem.symbol.size[0]) or -1):
                             elem.reset()
                             self.currfirstelemi = (self.currfirstelemi + 1) % len(self.elements)
                             self.shownelems -= 1
