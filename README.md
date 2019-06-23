@@ -56,7 +56,7 @@ Beispiel mit mehreren Matrizen:
 ### Darstellung
 
 __Abfahrtszeilen__:    
-Jede Abfahrtszeile besteht aktuell aus Liniennummer, Zieltext, und Countdown. Weitere Möglichkeiten wie ergänzende Symbole oder Steignummern oder eigene Steigsymbole/-referenzen soll es zukünftig geben.    
+Jede Abfahrtszeile besteht aktuell aus Liniennummer, Zieltext, Countdown, und optional Steignummer. Weitere Möglichkeiten wie eigene Steigsymbole/-referenzen oder ergänzende Symbole soll es zukünftig geben.    
 Horizontale Abstände in Pixeln zwischen den folgend genannten Elementen können angegeben werden (beispielsweise dass zwischen Zieltext und Countdown 1px frei sein muss).
 
 Für die Liniennummer kann eine Hintergrundfarbe verwendet werden. Die Breite in Pixel kann mit Parameter ```-w``` angepasst werden. Es wird versucht, die Liniennummer so passend wie möglich darzustellen, indem z. B. bei Grenzfällen eine kleinere Schriftart verwendet wird. Wenn etwas abgeschnitten werden muss, die Liniennummer aber z. B. "ICE" am Anfang hat, so wird anstatt einer abgeschnittenen Bezeichnung nur noch "ICE" angezeigt.
