@@ -2,21 +2,22 @@
 # -*- coding: utf-8 -*-
 from argparse import ArgumentParser
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 # from subprocess import check_output
 from sys import stderr
 from time import localtime, sleep  # , monotonic
-from typing import List, Tuple, Dict, Callable, Any, Iterable
+from typing import List, Iterable
 
 from loguru import logger
 from PIL import Image
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
-from dm_drawstuff import clockstr_tt, colorppm, drawppm_centered, drawppm_bottomleft, drawppm_bottomright, drawverticaltime, makechristmasfn
-from dm_areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
-from dm_lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, propscroll, textpx, fittext
-from dm_depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
+import dm
+from dm.drawstuff import clockstr_tt, colorppm
+from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
+from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
+from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
 
 
 ### Logging
@@ -38,7 +39,7 @@ parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Ena
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
 parser.add_argument("-r", "--rightbar", action="store", help="Enable sidebar on the right side with additional info. Disables header clock. Value: type of rightbar (1: vertical clock (default if just -r); 2: clock with icon, wide; 3: clock with progress, VRR icon, allows scrolling through it", nargs="?", const=1, default=0, type=int)
 parser.add_argument("-t", "--enable-top", action="store_true", help="Enable header with stop name and current time")
-parser.add_argument("-p", "--proportional", action="store_true", help="Use proportional font")
+parser.add_argument("--no-prop", action="store_true", help="Do not use proportional font")
 parser.add_argument("-n", "--show-zero", action="store_false", help="Show a zero instead of a bus when countdown is 0")
 parser.add_argument("-d", "--daemon", action="store_true", help="Run as daemon")
 parser.add_argument("-l", "--line-height", action="store", help="Departure line height. Default: 8", default=8, type=int)
@@ -56,14 +57,14 @@ parser.add_argument("--min-slightdelay", action="store", help="Minimum minutes o
 parser.add_argument("--max-minutes", action="store", help="Maximum countdown minutes to show time in minutes instead of absolute time. -1-99. Default: 59", default=59, choices=range(-1, 100), type=int)
 parser.add_argument("--disable-blink", action="store_false", help="Disable blinking of bus/zero when countdown is 0")
 parser.add_argument("--stop-name", action="store", help="Override header (-t) stop name returned by the API. Default: none", default="", type=str)
-parser.add_argument("--christmas", action="store_true", help="green/red lights at top and bottom (height 2), test")
 parser.add_argument("--show-progress", action="store_true", help="Show progress bar at the bottom")
 parser.add_argument("--disable-topscroll", action="store_false", help="Disable scrolling of stop name in the header (-t)")
 parser.add_argument("--small", action="store_true", help="enable --small-text, --small-countdown, --small-linenum.")
 # small_text doch aufteilen? small_auto hinzufuegen?
+parser.add_argument("--small-linenum", action="store_true", help="Show line number with smaller characters")
 parser.add_argument("--small-text", action="store_true", help="Show destination, stop name, message with smaller letters")
 parser.add_argument("--small-countdown", action="store_true", help="Show countdown with smaller numbers")
-parser.add_argument("--small-linenum", action="store_true", help="Show line number with smaller characters")
+parser.add_argument("--small-platform", action="store_true", help="Show platform with smaller numbers/letters")
 parser.add_argument("--update-steps", action="store", help="Loop steps until reload of data. Default: 600", default=600, type=int)
 parser.add_argument("--sleep-interval", action="store", help="Sleep interval (inside the main loop). Default: 0.03", default=0.03, type=float)
 parser.add_argument("--limit-multiplier", action="store", help="How many extra departures (value * actual limit) to load (useful for stops with a lot of departures where a few delays might \"hide\" earlier departures. Default: 3", default=3, type=int)
@@ -115,49 +116,35 @@ writeppm = bool(args.write_ppm)
 ppmfile = args.write_ppm
 options.pixelsvector = writeppm
 
+'''
 gpiotest = False
 gpiotest_minb = 10
 gpiotest_maxb = 65
-
 if gpiotest:
     available_inputs = matrix.GPIORequestInputs(0xffffffff)
+'''
+
+resources_dir = "./res/"
 
 ### Fonts
 
-fontdir = "./bdf/"
+fontdir = f"{resources_dir}bdf/"
 fontmin = graphics.Font()
-fontmin.LoadFont(fontdir+"tom-thumb.bdf")
+fontmin.LoadFont(f"{fontdir}tom-thumb.bdf")
 fontnum = graphics.Font()
-fontnum.LoadFont(fontdir+"4x6.bdf")
+fontnum.LoadFont(f"{fontdir}4x6.bdf")
 fontlargernum = graphics.Font()
-fontlargernum.LoadFont(fontdir+"5x7-mod.bdf")
+fontlargernum.LoadFont(f"{fontdir}5x7-mod.bdf")
 propfont = graphics.Font()
-propfont.LoadFont(fontdir+"uwe_prop_mod.bdf")
-proptest = args.proportional
+propfont.LoadFont(f"{fontdir}uwe_prop_mod.bdf")
 
-if args.small or args.small_text:
-    fonttext = fontnum
-else:
-    if proptest:
-        fonttext = propfont
-    else:
-        fonttext = fontlargernum
+fontnormal = propfont if not args.no_prop else fontlargernum
+fontsmall = fontnum
 
-if args.small or args.small_countdown:
-    fontcountdown = fontnum
-else:
-    if proptest:
-        fontcountdown = propfont
-    else:
-        fontcountdown = fontlargernum
-
-if args.small or args.small_linenum:
-    fontlinenum = fontnum
-else:
-    if proptest:
-        fontlinenum = propfont
-    else:
-        fontlinenum = fontlargernum
+fontlinenum = fontsmall if args.small or args.small_linenum else fontnormal
+fonttext = fontsmall if args.small or args.small_text else fontnormal
+fontcountdown = fontsmall if args.small or args.small_countdown else fontnormal
+fontplatform = fontsmall if args.small or args.small_platform else fontnormal
 
 ### Colors
 
@@ -165,11 +152,15 @@ else:
 matrixbgColor_t = None
 textColor = graphics.Color(255, 65, 0)
 texthighlightColor = graphics.Color(255, 20, 0)
-rtnoColor = graphics.Color(190, 190, 190)
-rtColor = graphics.Color(0, 255, 0)
-rtslightColor = graphics.Color(255, 255, 0)
-rtlateColor = graphics.Color(255, 0, 0)
-rtnegativeColor = graphics.Color(0, 255, 255)
+
+realtimecolors = RealtimeColors(no_realtime=graphics.Color(190, 190, 190),
+                                no_delay=graphics.Color(0, 255, 0),
+                                slight_delay=graphics.Color(255, 255, 0),
+                                high_delay=graphics.Color(255, 0, 0),
+                                cancelled=graphics.Color(255, 0, 0),
+                                negative_delay=graphics.Color(0, 255, 255))
+
+graytextColor = graphics.Color(190, 190, 190)
 lighttextColor = graphics.Color(100, 100, 100)
 barColor = graphics.Color(8, 8, 8)
 if options.brightness < 15:
@@ -179,27 +170,18 @@ else:
     linebgColor = graphics.Color(0, 8, 9)
 linefgColor = textColor
 
-### linenum
-
-linenum_width = args.linenum_width
-linenum_height = fontlinenum.height - 1
-linenum_normalsmalloffset = 1  # in zukunft einfach nur vertikal zentrieren?
-linenum_drawbg = True
-linenum_retext_1 = lambda _s: _s.group(1)+_s.group(2)
-linenum_retext_2 = lambda _s: _s.group(1)
-
 ### PPM
 
-ppmdir = "./ppm/"
-ppm_info = Image.open(ppmdir+"icon-info.ppm")
-ppm_warn = Image.open(ppmdir+"icon-warn.ppm")
-ppm_stop = Image.open(ppmdir+"icon-stop.ppm")
-ppm_smile = Image.open(ppmdir+"icon-smile.ppm")
-ppm_ad = Image.open(ppmdir+"icon-ad.ppm")
-ppm_delay = Image.open(ppmdir+"icon-delay.ppm")
-ppm_earlyterm = Image.open(ppmdir+"icon-earlyterm.ppm")
-ppm_no_rt = Image.open(ppmdir+"icon-no-rt.ppm")
-ppm_no_deps = Image.open(ppmdir+"icon-no-deps.ppm")
+ppmdir = f"{resources_dir}ppm/"
+ppm_info = Image.open(f"{ppmdir}icon-info.ppm")
+ppm_warn = Image.open(f"{ppmdir}icon-warn.ppm")
+ppm_stop = Image.open(f"{ppmdir}icon-stop.ppm")
+ppm_smile = Image.open(f"{ppmdir}icon-smile.ppm")
+ppm_ad = Image.open(f"{ppmdir}icon-ad.ppm")
+ppm_delay = Image.open(f"{ppmdir}icon-delay.ppm")
+ppm_earlyterm = Image.open(f"{ppmdir}icon-earlyterm.ppm")
+ppm_no_rt = Image.open(f"{ppmdir}icon-no-rt.ppm")
+ppm_no_deps = Image.open(f"{ppmdir}icon-no-deps.ppm")
 
 meldungicons = {"info": ppm_info,
                 "warn": ppm_warn,
@@ -214,36 +196,8 @@ meldungicons = {"info": ppm_info,
 
 symtextoffset = fonttext.height-fonttext.baseline
 
-'''
-# erstmal nicht mehr weiter verfolgt.
-nolinenumicons = False
-
-supportedlnlhs = (6, 7)
-defaultppmlnlh = 6
-ppmlinenumh = linenum_height if linenum_height in supportedlnlhs else defaultppmlnlh
-linenumicons = (not nolinenumicons) and linenum_height in supportedlnlhs
-
-ppm_whiteice = Image.open(f"{ppmdir}icon-ice{ppmlinenumh}.ppm")
-ppm_whiteic = Image.open(f"{ppmdir}icon-ic{ppmlinenumh}.ppm")
-ppm_whitene = Image.open(f"{ppmdir}icon-ne{ppmlinenumh}.ppm")
-ppm_whitenethin = Image.open(f"{ppmdir}icon-ne-thin{ppmlinenumh}.ppm")
-ppm_ice = colorppm(ppm_whiteice, linefgColor)
-ppm_ic = colorppm(ppm_whiteic, linefgColor)
-ppm_ne = colorppm(ppm_whitene, linefgColor)
-ppm_nethin = colorppm(ppm_whitenethin, linefgColor)
-'''
-
-longausfall = True
-ppm_ausfall = Image.open(ppmdir+"red-ausfall"+("-long" if longausfall else "")+".ppm")
-
-ppm_whitesofort = Image.open(ppmdir+"white-sofort.ppm")
-sofort = False
-
-minoffset = 1
-ppm_whitemin = Image.open(ppmdir+"white-min.ppm")
-ppmmincolordict = {}
-for _color in (rtnoColor, rtColor, rtslightColor, rtlateColor, rtnegativeColor):
-    ppmmincolordict[_color] = colorppm(ppm_whitemin, _color)
+ppm_whitemin = Image.open(f"{ppmdir}white-min.ppm")
+ppmmincolordict = {_color: colorppm(ppm_whitemin, _color) for _color in set(getattr(realtimecolors, f.name) for f in fields(realtimecolors))}
 
 supportedcdlhs = (6, 7)
 defaultppmcdlh = 6
@@ -255,6 +209,9 @@ ppm_whitehispeed = Image.open(f"{ppmdir}white-hispeed{ppmcdh}.ppm")
 ppm_whitetram = Image.open(f"{ppmdir}white-tram{ppmcdh}.ppm")
 ppm_whitehanging = Image.open(f"{ppmdir}white-hanging{ppmcdh}.ppm")
 
+ppm_whitesofort = Image.open(f"{ppmdir}white-sofort.ppm")
+sofort = False
+
 if sofort:
     ppmmotdict = dict.fromkeys((MOT.BUS, MOT.TRAIN, MOT.HISPEED, MOT.TRAM, MOT.HANGING), ppm_whitesofort)
 else:
@@ -265,19 +222,56 @@ else:
                   MOT.HANGING: ppm_whitehanging,
                   }
 
-ppmmotcolordict = dict.fromkeys(ppmmotdict.keys())
+ppmmotcolordict = {mot: {_color: colorppm(ppm, _color) for _color in ppmmincolordict.keys()} for mot, ppm in ppmmotdict.items()}
 
-for mot, ppm in ppmmotdict.items():
-    ppmmotcolordict[mot] = dict()
-    for _color in (rtnoColor, rtColor, rtslightColor, rtlateColor, rtnegativeColor):
-        ppmmotcolordict[mot][_color] = colorppm(ppm, _color)
+ppm_vrr = Image.open(f"{ppmdir}matrix13x13vrr-engebuchstaben-2.ppm").convert('RGB')
+ppm_db11 = Image.open(f"{ppmdir}dbkeks.ppm").convert('RGB')
+ppm_sonne11 = Image.open(f"{ppmdir}sonne.ppm").convert('RGB')
+ppm_wolke11 = Image.open(f"{ppmdir}wolke.ppm").convert('RGB')
+ppm_wolkesonne11 = Image.open(f"{ppmdir}wolke mit sonne.ppm").convert('RGB')
+ppm_wolkeregen11 = Image.open(f"{ppmdir}wolke mit regen.ppm").convert('RGB')
 
-ppm_vrr = Image.open("./ppm/matrix13x13vrr-engebuchstaben-2.ppm").convert('RGB')
-ppm_db11 = Image.open("./ppm/dbkeks.ppm").convert('RGB')
-ppm_sonne11 = Image.open("./ppm/sonne.ppm").convert('RGB')
-ppm_wolke11 = Image.open("./ppm/wolke.ppm").convert('RGB')
-ppm_wolkesonne11 = Image.open("./ppm/wolke mit sonne.ppm").convert('RGB')
-ppm_wolkeregen11 = Image.open("./ppm/wolke mit regen.ppm").convert('RGB')
+### linenum, countdown, platform
+
+normalsmalloffset = 1  # in zukunft einfach nur vertikal zentrieren?
+
+linenumopt = LinenumOptions(
+    width=args.linenum_width,
+    height=fontlinenum.height - 1,
+    normalFont=fontlinenum,
+    smallFont=fontsmall,
+    normalsmalloffset=normalsmalloffset,
+    drawbg=linebgColor is not None,
+    bgColor=linebgColor,
+    fgColor=textColor,
+    pattern=linenumpattern,
+    retext_1=lambda _s: _s.group(1)+_s.group(2),
+    retext_2=lambda _s: _s.group(1))
+
+longausfall = True
+ppm_ausfall = Image.open(f"{ppmdir}red-ausfall{'-long' if longausfall else ''}.ppm")
+
+countdownopt = CountdownOptions(
+    font=fontcountdown,
+    cancelled_symbol=ppm_ausfall,
+    mot_symbols=ppmmotdict,
+    mot_coloured_symbols=ppmmotcolordict,
+    min_symbol=ppm_whitemin,
+    min_coloured_symbols=ppmmincolordict,
+    mindelay=args.min_delay,
+    minslightdelay=args.min_slightdelay,
+    maxmin=args.max_minutes,
+    zerobus=args.show_zero,
+    mintext=args.disable_mintext,
+    minoffset=1)
+
+platformopt = PlatformOptions(
+    width=args.platform_width,
+    textColor=textColor,
+    texthighlightColor=texthighlightColor,
+    normalFont=fontplatform,
+    smallFont=fontsmall,
+    normalsmalloffset=normalsmalloffset)
 
 ### Display configuration
 
@@ -294,22 +288,14 @@ efamenabled = args.enable_efamessages
 header = args.enable_top
 headername = args.stop_name
 headerscroll = args.disable_topscroll
-mindelay = args.min_delay
-minslightdelay = args.min_slightdelay
-maxmin = args.max_minutes
-mintext = args.disable_mintext
-christmas = args.christmas
 progress = args.show_progress
 blink = args.disable_blink
-zerobus = args.show_zero
 # zur config (und alles andere eigentlich auch):
 stopsymbol = True
 melsymbol = True
 
-platform_width = args.platform_width
-
 rightbar = bool(args.rightbar)
-rightbarcolor = rtnoColor
+rightbarcolor = graytextColor
 scrollmsg_through_rightbar = False
 rightbarargs: Iterable
 
@@ -334,7 +320,7 @@ elif args.rightbar in {2, 3}:
 spaceld = 2
 # Abstand Ziel - Zeit
 spacedc = 1
-# Abstand Zeit - Steig (falls platform_width > 0)
+# Abstand Zeit - Steig (falls --platform-width > 0)
 spacecp = 1
 # Abstand Abfahrtsinfo (bis Zeit bzw. Steig usw.) zum rechten Bereich (Uhr, Logo, Wetter usw.)
 spaceDr = 1
@@ -373,18 +359,6 @@ etermmsg_enable = True
 etermmsg_only_visible = True
 nortmsg_limit = args.no_rt_msg
 
-### christmas fn
-
-randspeed = 8
-maxrgb = (130, 150, 35)
-# maxrgb = (150, 150, 0)
-ptspeed = 4
-ptlen = 3
-ptscale = 0.8
-ptrgb = (77, 65, 0)
-# ptrgb = (153, 130, 0)
-drawchristmas = makechristmasfn(maxrgb, randspeed, ptrgb, ptspeed, ptlen, ptscale)
-
 ### End of configuration
 
 def loop(matrix, pe):
@@ -399,23 +373,33 @@ def loop(matrix, pe):
     limit = (y_max - y_min + 1 - text_startr - fonttext.height + fonttext.baseline + lineheight) // lineheight
     x_pixels = x_max - x_min + 1
 
+    deplines = [StandardDepartureLine(
+                    lx=x_min,
+                    rx=x_max,
+                    font=fonttext,
+                    textColor=textColor,
+                    texthighlightColor=texthighlightColor,
+                    space_linenum_direction=spaceld,
+                    space_direction_countdown=spacedc,
+                    space_countdown_platform=spacecp,
+                    linenumopt=linenumopt,
+                    countdownopt=countdownopt,
+                    platformopt=platformopt,
+                    realtimecolors=realtimecolors
+                ) for _ in range(limit)]
+
     currenttime = localtime()
     # xmax hier muss man eigentlich immer neu berechnen
     scrollx_stop_xmax = x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(currenttime)))
     stop_scroller = SimpleScrollline(x_min, scrollx_stop_xmax, symtextoffset, fonttext, lighttextColor, noscroll=not headerscroll)
 
     deps: List[Departure] = []
-    meldungs: List[Meldung] = []
+
+    const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
+    meldungs: List[Meldung] = const_meldungs.copy()
 
     scrollx_msg_xmax = (canvas.width - 1) if scrollmsg_through_rightbar else x_max
     meldung_scroller = MultisymbolScrollline(x_min, scrollx_msg_xmax, symtextoffset, fonttext, lighttextColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
-
-    # tmp
-    if args.message:
-        meldungs.append(Meldung(symbol="ad", text=args.message))
-
-    pe_f = None
-    joined = True
 
     # "volles" Beispiel in dm_depdata.py
     depfun_efa: type_depfns = {
@@ -506,12 +490,8 @@ def loop(matrix, pe):
         depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
         depfunctions.update({('ext-m+d', False): depfnlist_ext})
 
-    linenumopt = LinenumOptions(linenum_width, linenum_height, fontlinenum, fontnum, linenum_normalsmalloffset, linenum_drawbg, linebgColor, linefgColor, linenumpattern, linenum_retext_1, linenum_retext_2)
-    countdownopt = CountdownOptions(fontcountdown, ppm_ausfall, ppmmotdict, ppmmotcolordict, ppm_whitemin, ppmmincolordict, mindelay, minslightdelay, maxmin, zerobus, mintext, minoffset)
-    platformopt = PlatformOptions(platform_width, textColor, texthighlightColor, fontcountdown, fontnum, linenum_normalsmalloffset)
-    realtimecolors = RealtimeColors(rtnoColor, rtColor, rtslightColor, rtlateColor, rtnegativeColor)
-    deplines = [StandardDepartureLine(x_min, x_max, fonttext, textColor, texthighlightColor, spaceld, spacedc, spacecp, linenumopt, countdownopt, platformopt, realtimecolors)
-                for _ in range(limit)]
+    pe_f = None
+    joined = True
 
     logger.info(f"started loop with depfunctions {', '.join(x[0] for x in depfunctions.keys())}")
     while True:
@@ -526,7 +506,7 @@ def loop(matrix, pe):
                              getdeps_placelist=placelist,
                              getdeps_mincountdown=countdownlowerlimit,
                              getdeps_max_retries=maxkwaretries,
-                             extramsg_messageexists=bool(args.message),  # ob es *bereits* eine Meldung geben wird - aktuell nur durch args.message so.
+                             extramsg_messageexists=bool(const_meldungs),
                              delaymsg_enable=delaymsg_enable,
                              delaymsg_mindelay=delaymsg_mindelay,
                              etermmsg_enable=etermmsg_enable,
@@ -543,8 +523,7 @@ def loop(matrix, pe):
                 deps = []
                 meldungs = [Meldung(symbol="warn", text="Fehler bei Datenabruf. Bitte Aushangfahrpläne beachten.")]
             else:
-                if args.message:
-                    meldungs.append(Meldung(symbol="ad", text=args.message))
+                meldungs.extend(const_meldungs)
                 for di, dep in enumerate(deps):
                     for _mel in dep.messages:
                         if _mel not in meldungs and ((not _mel.efa) or (efamenabled and di < limit-header-1)):
@@ -573,7 +552,7 @@ def loop(matrix, pe):
             stop_scroller.render(canvas, r)
 
             if not rightbar:
-                graphics.DrawText(canvas, fonttext, scrollx_stop_xmax+1+header_spacest, r, rtnoColor, clockstr_tt(currenttime))
+                graphics.DrawText(canvas, fonttext, scrollx_stop_xmax+1+header_spacest, r, graytextColor, clockstr_tt(currenttime))
 
             r += lineheight
 
@@ -589,19 +568,18 @@ def loop(matrix, pe):
             x_progress = int(x_pixels-1 - ((i % step)*((x_pixels-1)/step)))
             graphics.DrawLine(canvas, x_min, y_max, x_min+x_progress, y_max, barColor)
 
-        if christmas:
-            drawchristmas(canvas, x_min, x_max, y_min, y_max, i)
-
         if writeppm:
             canvas.ppm(ppmfile)
 
         canvas = matrix.SwapOnVSync(canvas)
 
+        '''
         if gpiotest:
             inputs = matrix.AwaitInputChange(0)
             if inputs & (1 << 21):
                 # check_output(["/sbin/shutdown", "now"])
                 matrix.brightness = ((matrix.brightness - gpiotest_minb + 1) % (gpiotest_maxb - gpiotest_minb + 1)) + gpiotest_minb
+        '''
 
         # _st = interval-monotonic()+time_measure
         # if _st > 0:
@@ -616,7 +594,7 @@ if __name__ == "__main__":
     matrix = RGBMatrix(options=options)
     if args.show_start:
         startcanvas = matrix.CreateFrameCanvas(writeppm)
-        startscreen(startcanvas, fontnum, lighttextColor, ifopt, ppm_smile)
+        startscreen(startcanvas, fontsmall, lighttextColor, ifopt, ppm_smile)
         matrix.SwapOnVSync(startcanvas)
         sleep(5)
     while True:

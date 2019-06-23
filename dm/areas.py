@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from subprocess import check_output
 from rgbmatrix import graphics
-from dm_drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_topcentered, drawppm_centered, drawsecpixels, drawverticaltime
-from dm_lines import textpx
+from .drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_topcentered, drawppm_centered, drawsecpixels, drawverticaltime
+from .lines import textpx
 
 
 def rightbar_wide(canvas, x, y, rightbarwidth, font, color, i, step, currenttime, ppmlist):

@@ -64,6 +64,15 @@ def drawverticaltime(canvas, font, x, y, color, hour, minute, sec=None, sec_main
 
 
 def makechristmasfn(maxrgb, randspeed, ptrgb, ptspeed, ptlen, ptscale):
+    ## Beispielangaben:
+    # randspeed = 8
+    # maxrgb = (130, 150, 35)
+    ## maxrgb = (150, 150, 0)
+    # ptspeed = 4
+    # ptlen = 3
+    # ptscale = 0.8
+    # ptrgb = (77, 65, 0)
+    ## ptrgb = (153, 130, 0)
     def drawchristmas(canvas, x_min, x_max, y_min, y_max, i):
         l = x_max+1-x_min
         bbness = 1

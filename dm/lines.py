@@ -8,8 +8,8 @@ from PIL import Image
 from rgbmatrix import graphics
 from rgbmatrix.core import FrameCanvas
 
-from dm_drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_bottomright
-from dm_depdata import Departure, Meldung, MOT, trainMOT
+from .drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_bottomright
+from .depdata import Departure, Meldung, MOT, trainMOT
 
 
 class MultisymbolScrollline:
@@ -241,6 +241,7 @@ class RealtimeColors:
     no_delay: graphics.Color
     slight_delay: graphics.Color
     high_delay: graphics.Color
+    cancelled: graphics.Color
     negative_delay: graphics.Color
 
 
@@ -331,7 +332,9 @@ class StandardDepartureLine:
         self.linenum_xpos = self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width)
 
         if self.dep.realtime:
-            if self.dep.delay >= self.countdownopt.mindelay or self.dep.cancelled:
+            if self.dep.cancelled:
+                self.rtcolor = self.realtimecolors.cancelled
+            if self.dep.delay >= self.countdownopt.mindelay:
                 self.rtcolor = self.realtimecolors.high_delay
             elif self.dep.delay >= self.countdownopt.minslightdelay:
                 self.rtcolor = self.realtimecolors.slight_delay

@@ -30,22 +30,22 @@ fi
 echo "selection: $selection"
 case $selection in
 emilienplatz)
-  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -per1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST # --test-d3d9 emilienplatz-land
+  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST
   ;;
 emilienplatz3)
-  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -per3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15 # --test-d3d9 emilienplatz-land
+  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15
   ;;
 hagenhbfefa)
-  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -per1 -l8 -f8 --update-steps 330
+  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
   ;;
 hagenhbf)
-  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -per1 -l8 -f8 --update-steps 330 --place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --ibnr "08000142"
+  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --ibnr "08000142"
   ;;
 essenhbfefa)
-  ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -per1 -l8 -f8 --update-steps 330 --place-string "Essen " --place-string "E-"
+  ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string "Essen " --place-string "E-"
   ;;
 essenhbf)
-  ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -per1 -l8 -f8 --update-steps 330 --place-string ", Essen (Ruhr)" --place-string "Essen " --place-string "E-" --ibnr "08000098"
+  ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string ", Essen (Ruhr)" --place-string "Essen " --place-string "E-" --ibnr "08000098"
   ;;
 *)
   echo "ungültige Auswahl $selection"
