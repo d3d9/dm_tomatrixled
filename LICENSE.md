@@ -38,7 +38,8 @@ The __LED-matrix library__ is (c) Henner Zeller <h.zeller@acm.org>, licensed wit
 
 ***
 
-__res/bdf/uwe_prop.bdf, res/bdf/uwe_prop_mod.bdf__
+__res/bdf/uwe_prop.bdf, res/bdf/uwe_prop_mod.bdf:__
+
 Permission to use, copy, modify, and distribute this
 software for any purpose and without fee is hereby granted,
 provided that the above copyright notice appear in all
