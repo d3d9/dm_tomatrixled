@@ -45,6 +45,7 @@ parser.add_argument("-d", "--daemon", action="store_true", help="Run as daemon")
 parser.add_argument("-l", "--line-height", action="store", help="Departure line height. Default: 8", default=8, type=int)
 parser.add_argument("-f", "--firstrow-y", action="store", help="(text_startr) Where to start with the rows vertically (bottom pixel). Default: 6", default=6, type=int)
 parser.add_argument("-w", "--linenum-width", action="store", help="pixels for line number. Default: 20", default=20, type=int)
+parser.add_argument("--lines", action="store", help="Force specific number of lines (for example if different chain lengths are used)", type=int)
 parser.add_argument("--platform-width", action="store", help="pixels for platform, 0 to disable. Default: 0", default=0, type=int)
 parser.add_argument("--place-string", action="append", help="Strings that are usually at the beginning of stop names, to be filtered out (for example (default:) \"Hagen \", \"HA-\")", default=[], type=str, dest="place_strings")
 parser.add_argument("--ignore-infotype", action="append", help="EFA: ignore this 'infoType' (can be used multiple times)", default=[], type=str)
@@ -371,6 +372,7 @@ def loop(matrix, pe):
     y_max = canvas.height - 1
 
     limit = (y_max - y_min + 1 - text_startr - fonttext.height + fonttext.baseline + lineheight) // lineheight
+    if args.lines: limit = args.lines
     x_pixels = x_max - x_min + 1
 
     deplines = [StandardDepartureLine(
