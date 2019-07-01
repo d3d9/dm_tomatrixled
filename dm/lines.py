@@ -35,7 +35,7 @@ class MultisymbolScrollline:
             self.letters_passed = 0
             self.curr_textxoffset = 0
 
-    def __init__(self, lx, rx, symoffset, font, defaulttextcolor, symdict, bgcolor_t=None, initial_pretext=2, initial_posttext=5, pretext_zero_if_no_symbol=True, add_end_spacer=True, last_char_separated=False):
+    def __init__(self, lx, rx, symoffset, font, defaulttextcolor, symdict, bgcolor_t=None, initial_pretext=2, initial_posttext=5, pretext_zero_if_no_symbol=True, add_end_spacer=True, last_char_separated=False, fixedy: Optional[int] = None):
         # attributes
         self.lx = lx
         self.rx = rx
@@ -49,6 +49,7 @@ class MultisymbolScrollline:
         self.pretext_zero_if_no_symbol = pretext_zero_if_no_symbol
         self.add_end_spacer = add_end_spacer
         self.last_char_separated = last_char_separated
+        self.fixedy = fixedy
         # self.staticleftsymtextspacing = staticleftsymtextspacing
         # self.forcescroll = forcescroll
         # self.noscroll = noscroll
@@ -106,6 +107,7 @@ class MultisymbolScrollline:
     def render(self, canvas: FrameCanvas, texty: int) -> None:
         if not self.elements:
             return
+        texty = self.fixedy if self.fixedy is not None else texty
         currx = self.startpos
         if self.currfirstelemi is None:
             self.currfirstelemi = 0
@@ -167,7 +169,7 @@ class MultisymbolScrollline:
 
 
 class SimpleScrollline:
-    def __init__(self, lx, rx, symoffset, font, textcolor, symtextspacing=1, forcescroll=False, noscroll=False):
+    def __init__(self, lx, rx, symoffset, font, textcolor, symtextspacing=1, forcescroll=False, noscroll=False, fixedy: Optional[int] = None):
         self.lx = lx
         self.rx = rx
         self.symoffset = symoffset
@@ -176,6 +178,7 @@ class SimpleScrollline:
         self.symtextspacing = symtextspacing
         self.forcescroll = forcescroll
         self.noscroll = noscroll
+        self.fixedy = fixedy
 
         self.currx = rx
         self.letters_passed = 0
@@ -199,6 +202,7 @@ class SimpleScrollline:
         self.willscroll = (not self.noscroll) and (self.forcescroll or self.textlen > self.text_max_theoretical)
 
     def render(self, canvas: FrameCanvas, texty: int) -> None:
+        texty = self.fixedy if self.fixedy is not None else texty
         if self.symbol: drawppm_bottomleft(canvas, self.symbol, self.lx, texty+self.symoffset, transp=True)
         if not self.text: return
         if self.willscroll:
@@ -281,7 +285,8 @@ class StandardDepartureLine:
             linenumopt: LinenumOptions,
             countdownopt: CountdownOptions,
             platformopt: Optional[PlatformOptions],
-            realtimecolors: RealtimeColors):
+            realtimecolors: RealtimeColors,
+            fixedy: Optional[int] = None):
         self.lx = lx
         self.rx = rx
         self.font = font
@@ -294,6 +299,7 @@ class StandardDepartureLine:
         self.countdownopt = countdownopt
         self.platformopt = platformopt
         self.realtimecolors = realtimecolors
+        self.fixedy = fixedy
 
         self.dep: Optional[Departure] = None
 
@@ -388,6 +394,8 @@ class StandardDepartureLine:
     def render(self, canvas: FrameCanvas, texty: int, blinkon: bool) -> None:
         if self.dep is None:
             return
+
+        texty = self.fixedy if self.fixedy is not None else texty
 
         if self.linenumopt.drawbg:
             for y in range(texty-self.linenumopt.height, texty):
