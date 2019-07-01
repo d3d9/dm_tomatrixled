@@ -302,19 +302,6 @@ class StandardDepartureLine:
         self.fixedy = fixedy
 
         self.dep: Optional[Departure] = None
-
-        self.linenum_font: graphics.Font = self.linenumopt.normalFont
-        self.linenum_str: str = ""
-        self.linenum_xpos: int = 0
-        self.linenum_verticaloffset: int = 0
-
-        self.platform_display: bool = False
-        self.platform_font: graphics.Font
-        self.platform_str: str
-        self.platform_xpos: int
-        self.platform_verticaloffset: int
-        self.platform_color: graphics.Color
-
         self.rtcolor: graphics.Color = self.realtimecolors.no_realtime
         self.dirtextcolor: graphics.Color = self.textColor
 
@@ -346,19 +333,6 @@ class StandardDepartureLine:
         if self.dep is None:
             return
 
-        self.linenum_font, self.linenum_str, linenum_px, self.linenum_verticaloffset = fittext(
-            self.dep.disp_linenum,
-            self.linenumopt.width,
-            self.linenum_min,
-            self.linenum_max,
-            self.linenumopt.normalFont,
-            self.linenumopt.smallFont,
-            smallpxoffset=self.linenumopt.normalsmalloffset,
-            pattern=self.linenumopt.pattern,
-            alt_retext_1=self.linenumopt.retext_1,
-            alt_retext_2=self.linenumopt.retext_2)
-        self.linenum_xpos = self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width)
-
         if self.dep.realtime:
             if self.dep.cancelled:
                 self.rtcolor = self.realtimecolors.cancelled
@@ -373,24 +347,6 @@ class StandardDepartureLine:
         else:
             self.rtcolor = self.realtimecolors.no_realtime
 
-        self.platform_display = self.platformopt is not None and self.platformopt.width > 0 and self.dep.platformno
-        if self.platform_display:
-            platprefix = self.dep.platformtype or ("Gl." if self.dep.mot in trainMOT else "Bstg.")
-            self.platform_font, self.platform_str, platpx, self.platform_verticaloffset = fittext(
-                platprefix + str(self.dep.platformno),
-                self.platformopt.width,
-                self.platform_min,
-                self.platform_max,
-                self.platformopt.normalFont,
-                self.platformopt.smallFont,
-                smallpxoffset=self.platformopt.normalsmalloffset,
-                alt_text=str(self.dep.platformno))
-            platformchanged = self.dep.platformno_planned and (self.dep.platformno_planned != self.dep.platformno)
-            self.platform_color = self.platformopt.texthighlightColor if platformchanged else self.platformopt.textColor
-            self.platform_xpos = self.platform_max - platpx + 1
-
-        self.dirtextcolor = self.texthighlightColor if self.dep.earlytermination else self.textColor
-
     def render(self, canvas: FrameCanvas, texty: int, blinkon: bool) -> None:
         if self.dep is None:
             return
@@ -401,7 +357,20 @@ class StandardDepartureLine:
             for y in range(texty-self.linenumopt.height, texty):
                 graphics.DrawLine(canvas, self.linenum_min, y, self.linenum_max, y, self.linenumopt.bgColor)
 
-        graphics.DrawText(canvas, self.linenum_font, self.linenum_xpos, texty-self.linenum_verticaloffset, self.linenumopt.fgColor, self.linenum_str)
+        linenum_font, linenum_str, linenum_px, linenum_verticaloffset = fittext(
+            self.dep.disp_linenum,
+            self.linenumopt.width,
+            self.linenum_min,
+            self.linenum_max,
+            self.linenumopt.normalFont,
+            self.linenumopt.smallFont,
+            smallpxoffset=self.linenumopt.normalsmalloffset,
+            pattern=self.linenumopt.pattern,
+            alt_retext_1=self.linenumopt.retext_1,
+            alt_retext_2=self.linenumopt.retext_2)
+        linenum_xpos = self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width)
+
+        graphics.DrawText(canvas, linenum_font, linenum_xpos, texty-linenum_verticaloffset, self.linenumopt.fgColor, linenum_str)
 
         directionpixel = self.deptime_x_max - self.direction_xpos
         timeoffset = 0
@@ -426,12 +395,26 @@ class StandardDepartureLine:
                 drawppm_bottomright(canvas, self.countdownopt.min_coloured_symbols[self.rtcolor], self.deptime_x_max, texty, transp=True)
                 timeoffset += self.countdownopt.min_symbol.size[0] + self.countdownopt.minoffset
 
-        if self.platform_display:
-            graphics.DrawText(canvas, self.platform_font, self.platform_xpos, texty-self.platform_verticaloffset, self.platform_color, self.platform_str)
+        if self.platformopt is not None and self.platformopt.width > 0 and self.dep.platformno:
+            platprefix = self.dep.platformtype or ("Gl." if self.dep.mot in trainMOT else "Bstg.")
+            platform_font, platform_str, platpx, platform_verticaloffset = fittext(
+                platprefix + str(self.dep.platformno),
+                self.platformopt.width,
+                self.platform_min,
+                self.platform_max,
+                self.platformopt.normalFont,
+                self.platformopt.smallFont,
+                smallpxoffset=self.platformopt.normalsmalloffset,
+                alt_text=str(self.dep.platformno))
+            platformchanged = self.dep.platformno_planned and (self.dep.platformno_planned != self.dep.platformno)
+            platform_color = self.platformopt.texthighlightColor if platformchanged else self.platformopt.textColor
+            platform_xpos = self.platform_max - platpx + 1
+            graphics.DrawText(canvas, platform_font, platform_xpos, texty-platform_verticaloffset, platform_color, platform_str)
 
         directionpixel -= (timeoffset + self.space_direction_countdown*bool(timeoffset))
         directionlimit = propscroll(self.font, self.dep.disp_direction, self.direction_xpos, self.direction_xpos+directionpixel)
-        graphics.DrawText(canvas, self.font, self.direction_xpos, texty, self.dirtextcolor, self.dep.disp_direction[:directionlimit])
+        dirtextcolor = self.texthighlightColor if self.dep.earlytermination else self.textColor
+        graphics.DrawText(canvas, self.font, self.direction_xpos, texty, dirtextcolor, self.dep.disp_direction[:directionlimit])
 
 
 # beides ohne extra_spacing
