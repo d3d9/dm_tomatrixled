@@ -1,17 +1,18 @@
 #!/usr/bin/env python3.7
 # -*- coding: utf-8 -*-
 from argparse import ArgumentParser
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 # from subprocess import check_output
 from sys import stderr
 from time import localtime, sleep  # , monotonic
-from typing import List, Iterable
+from typing import List, Iterable, Tuple, Optional, NoReturn, Union
 
 from loguru import logger
 from PIL import Image
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+from rgbmatrix.core import FrameCanvas
 
 import dm
 from dm.drawstuff import clockstr_tt, colorppm
@@ -276,17 +277,11 @@ platformopt = PlatformOptions(
 
 ### Display configuration
 
-lineheight = args.line_height
-text_startr = args.firstrow_y
-
 placelist = args.place_strings
 if not placelist:
     placelist = ["Hagen ", "HA-"]
 ifopt = args.stop_ifopt
-step = args.update_steps
-interval = args.sleep_interval
 efamenabled = args.enable_efamessages
-header = args.enable_top
 headername = args.stop_name
 headerscroll = args.disable_topscroll
 progress = args.show_progress
@@ -331,7 +326,7 @@ header_spacest = 1
 countdownlowerlimit = -9
 
 min_timeout = 10
-servertimeout = max(min_timeout, (interval*step)/2)
+servertimeout = max(min_timeout, (args.sleep_interval*args.update_steps)/2)
 tz = datetime.utcnow().astimezone().tzinfo
 maxkwaretries = 3
 
@@ -362,213 +357,294 @@ nortmsg_limit = args.no_rt_msg
 
 ### End of configuration
 
-def loop(matrix, pe):
-    i = 0
-    # canvas und loop setup
-    canvas = matrix.CreateFrameCanvas(writeppm)
-    x_min = 0
-    y_min = 0
-    x_max = canvas.width - 1 - (rightbar and (rightbarwidth + spaceDr))
-    y_max = canvas.height - 1
+class Display:
+    def __init__(
+            self,
+            pe: Executor,
+            x_min: int,
+            y_min: int,
+            x_max: int,
+            y_max: int,
+            font: graphics.Font,
+            lineheight: int,
+            text_startr: int,
+            textColor: graphics.Color,
+            texthighlightColor: graphics.Color,
+            clockColor: graphics.Color,
+            progressColor: graphics.Color,
+            bgColor_t: Optional[Tuple[int, int, int]],
+            step: int,
+            deplines: List[StandardDepartureLine],
+            stop_scroller: Optional[Union[MultisymbolScrollline, SimpleScrollline]],
+            clock_in_header: Optional[bool],
+            meldung_scroller: Optional[Union[MultisymbolScrollline, SimpleScrollline]]):
+        self.pe = pe
+        self.x_min = x_min
+        self.y_min = y_min
+        self.x_max = x_max
+        self.y_max = y_max
+        self.font = font
+        self.lineheight = lineheight
+        self.text_startr = text_startr
+        self.textColor = textColor
+        self.texthighlightColor = texthighlightColor
+        self.clockColor = clockColor
+        self.progressColor = progressColor
+        self.bgColor_t = bgColor_t
+        self.step = step
+        self.deplines = deplines
+        self.stop_scroller = stop_scroller
+        self.clock_in_header = clock_in_header
+        self.meldung_scroller = meldung_scroller
 
-    limit = (y_max - y_min + 1 - text_startr - fonttext.height + fonttext.baseline + lineheight) // lineheight
-    if args.lines: limit = args.lines
-    x_pixels = x_max - x_min + 1
+        self.i = 0
+        self.limit = len(deplines)
+        self.deps: List[Departure] = []
+        self.const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
+        self.meldungs: List[Meldung] = self.const_meldungs.copy()
 
-    deplines = [StandardDepartureLine(
-                    lx=x_min,
-                    rx=x_max,
-                    font=fonttext,
-                    textColor=textColor,
-                    texthighlightColor=texthighlightColor,
-                    space_linenum_direction=spaceld,
-                    space_direction_countdown=spacedc,
-                    space_countdown_platform=spacecp,
-                    linenumopt=linenumopt,
-                    countdownopt=countdownopt,
-                    platformopt=platformopt,
-                    realtimecolors=realtimecolors
-                ) for _ in range(limit)]
+        self.header = self.stop_scroller is not None
 
-    currenttime = localtime()
-    # xmax hier muss man eigentlich immer neu berechnen
-    scrollx_stop_xmax = x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(currenttime)))
-    stop_scroller = SimpleScrollline(x_min, scrollx_stop_xmax, symtextoffset, fonttext, lighttextColor, noscroll=not headerscroll)
+        # "volles" Beispiel in dm_depdata.py
+        depfun_efa: type_depfns = {
+            ("efa-main", True): [(getefadeps, [{'serverurl': efaserver,
+                                                'timeout': servertimeout,
+                                                'ifopt': ifopt,
+                                                'limit': self.limit*args.limit_multiplier,
+                                                'tz': tz,
+                                                'ignore_infoTypes': ignore_infoTypes,
+                                                'ignore_infoIDs': ignore_infoIDs,
+                                                'content_for_short_titles': content_for_short_titles,
+                                               },
+                                               {'serverurl': efaserver_backup,
+                                                'timeout': servertimeout,
+                                                'ifopt': ifopt,
+                                                'limit': self.limit*args.limit_multiplier,
+                                                'tz': tz,
+                                                'ignore_infoTypes': ignore_infoTypes,
+                                                'ignore_infoIDs': ignore_infoIDs,
+                                                'content_for_short_titles': content_for_short_titles,
+                                               },
+                                              ])
+                                ],
+            }
 
-    deps: List[Departure] = []
-
-    const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
-    meldungs: List[Meldung] = const_meldungs.copy()
-
-    scrollx_msg_xmax = (canvas.width - 1) if scrollmsg_through_rightbar else x_max
-    meldung_scroller = MultisymbolScrollline(x_min, scrollx_msg_xmax, symtextoffset, fonttext, lighttextColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
-
-    # "volles" Beispiel in dm_depdata.py
-    depfun_efa: type_depfns = {
-        ("efa-main", True): [(getefadeps, [{'serverurl': efaserver,
-                                            'timeout': servertimeout,
-                                            'ifopt': ifopt,
-                                            'limit': limit*args.limit_multiplier,
-                                            'tz': tz,
-                                            'ignore_infoTypes': ignore_infoTypes,
-                                            'ignore_infoIDs': ignore_infoIDs,
-                                            'content_for_short_titles': content_for_short_titles,
-                                           },
-                                           {'serverurl': efaserver_backup,
-                                            'timeout': servertimeout,
-                                            'ifopt': ifopt,
-                                            'limit': limit*args.limit_multiplier,
-                                            'tz': tz,
-                                            'ignore_infoTypes': ignore_infoTypes,
-                                            'ignore_infoIDs': ignore_infoIDs,
-                                            'content_for_short_titles': content_for_short_titles,
-                                           },
-                                          ])
-                            ],
-        }
-
-    depfun_efadb: type_depfns = {
-        ("efa-notr", True): [(getefadeps, [{'serverurl': efaserver,
-                                            'timeout': servertimeout,
-                                            'ifopt': ifopt,
-                                            'limit': limit*args.limit_multiplier,
-                                            'tz': tz,
-                                            'exclMOT': trainTMOTefa,
-                                            'ignore_infoTypes': ignore_infoTypes,
-                                            'ignore_infoIDs': ignore_infoIDs,
-                                            'content_for_short_titles': content_for_short_titles,
-                                           },
-                                           {'serverurl': efaserver_backup,
-                                            'timeout': servertimeout,
-                                            'ifopt': ifopt,
-                                            'limit': limit*args.limit_multiplier,
-                                            'tz': tz,
-                                            'exclMOT': trainTMOTefa,
-                                            'ignore_infoTypes': ignore_infoTypes,
-                                            'ignore_infoIDs': ignore_infoIDs,
-                                            'content_for_short_titles': content_for_short_titles,
-                                           },
-                                          ])
-                            ],
-        ("dbre-tr", True): [(getdbrestdeps, [{'serverurl': dbrestserver,
+        depfun_efadb: type_depfns = {
+            ("efa-notr", True): [(getefadeps, [{'serverurl': efaserver,
+                                                'timeout': servertimeout,
+                                                'ifopt': ifopt,
+                                                'limit': self.limit*args.limit_multiplier,
+                                                'tz': tz,
+                                                'exclMOT': trainTMOTefa,
+                                                'ignore_infoTypes': ignore_infoTypes,
+                                                'ignore_infoIDs': ignore_infoIDs,
+                                                'content_for_short_titles': content_for_short_titles,
+                                               },
+                                               {'serverurl': efaserver_backup,
+                                                'timeout': servertimeout,
+                                                'ifopt': ifopt,
+                                                'limit': self.limit*args.limit_multiplier,
+                                                'tz': tz,
+                                                'exclMOT': trainTMOTefa,
+                                                'ignore_infoTypes': ignore_infoTypes,
+                                                'ignore_infoIDs': ignore_infoIDs,
+                                                'content_for_short_titles': content_for_short_titles,
+                                               },
+                                              ])
+                                ],
+            ("dbre-tr", True): [(getdbrestdeps, [{'serverurl': dbrestserver,
+                                                   'timeout': servertimeout,
+                                                   'ibnr': dbrestibnr,
+                                                   'limit': self.limit*args.limit_multiplier,
+                                                   'inclMOT': trainMOT,
+                                                 },
+                                                 {'serverurl': dbrestserver_backup,
+                                                   'timeout': servertimeout,
+                                                   'ibnr': dbrestibnr,
+                                                   'limit': self.limit*args.limit_multiplier,
+                                                   'inclMOT': trainMOT,
+                                                 }
+                                                ]),
+                                (getefadeps, [{'serverurl': efaserver,
                                                'timeout': servertimeout,
-                                               'ibnr': dbrestibnr,
-                                               'limit': limit*args.limit_multiplier,
-                                               'inclMOT': trainMOT,
-                                             },
-                                             {'serverurl': dbrestserver_backup,
+                                               'ifopt': ifopt,
+                                               'limit': self.limit*args.limit_multiplier,
+                                               'tz': tz,
+                                               'inclMOT': trainTMOTefa,
+                                               'ignore_infoTypes': ignore_infoTypes,
+                                               'ignore_infoIDs': ignore_infoIDs,
+                                               'content_for_short_titles': content_for_short_titles,
+                                              },
+                                              {'serverurl': efaserver_backup,
                                                'timeout': servertimeout,
-                                               'ibnr': dbrestibnr,
-                                               'limit': limit*args.limit_multiplier,
-                                               'inclMOT': trainMOT,
-                                             }
-                                            ]),
-                            (getefadeps, [{'serverurl': efaserver,
-                                           'timeout': servertimeout,
-                                           'ifopt': ifopt,
-                                           'limit': limit*args.limit_multiplier,
-                                           'tz': tz,
-                                           'inclMOT': trainTMOTefa,
-                                           'ignore_infoTypes': ignore_infoTypes,
-                                           'ignore_infoIDs': ignore_infoIDs,
-                                           'content_for_short_titles': content_for_short_titles,
-                                          },
-                                          {'serverurl': efaserver_backup,
-                                           'timeout': servertimeout,
-                                           'ifopt': ifopt,
-                                           'limit': limit*args.limit_multiplier,
-                                           'tz': tz,
-                                           'inclMOT': trainTMOTefa,
-                                           'ignore_infoTypes': ignore_infoTypes,
-                                           'ignore_infoIDs': ignore_infoIDs,
-                                           'content_for_short_titles': content_for_short_titles,
-                                          }
-                                         ])
-                           ],
-        }
+                                               'ifopt': ifopt,
+                                               'limit': self.limit*args.limit_multiplier,
+                                               'tz': tz,
+                                               'inclMOT': trainTMOTefa,
+                                               'ignore_infoTypes': ignore_infoTypes,
+                                               'ignore_infoIDs': ignore_infoIDs,
+                                               'content_for_short_titles': content_for_short_titles,
+                                              }
+                                             ])
+                               ],
+            }
 
-    depfunctions = depfun_efadb if dbrestibnr else depfun_efa
-    if ext_url:
-        depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
-        depfunctions.update({('ext-m+d', False): depfnlist_ext})
+        self.depfunctions = depfun_efadb if dbrestibnr else depfun_efa
+        if ext_url:
+            depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
+            self.depfunctions.update({('ext-m+d', False): depfnlist_ext})
 
-    pe_f = None
-    joined = True
+        self.pe_f = None
+        self.joined = True
 
-    logger.info(f"started loop with depfunctions {', '.join(x[0] for x in depfunctions.keys())}")
-    while True:
-        # time_measure = monotonic()
-        canvas.Fill(*matrixbgColor_t) if matrixbgColor_t else canvas.Clear()
-        if joined and not i % step:
-            joined = False
-            pe_f = pe.submit(getdeps,
-                             depfunctions=depfunctions,
-                             getdeps_timezone=tz,
-                             getdeps_lines=limit-header,
-                             getdeps_placelist=placelist,
-                             getdeps_mincountdown=countdownlowerlimit,
-                             getdeps_max_retries=maxkwaretries,
-                             extramsg_messageexists=bool(const_meldungs),
-                             delaymsg_enable=delaymsg_enable,
-                             delaymsg_mindelay=delaymsg_mindelay,
-                             etermmsg_enable=etermmsg_enable,
-                             etermmsg_only_visible=etermmsg_only_visible,
-                             nodepmsg_enable=True,
-                             nortmsg_limit=nortmsg_limit)
+    def update(self) -> bool:
+        if self.joined and not self.i % self.step:
+            self.joined = False
+            self.pe_f = self.pe.submit(
+                getdeps,
+                depfunctions=self.depfunctions,
+                getdeps_timezone=tz,
+                getdeps_lines=self.limit-self.header,
+                getdeps_placelist=placelist,
+                getdeps_mincountdown=countdownlowerlimit,
+                getdeps_max_retries=maxkwaretries,
+                extramsg_messageexists=bool(self.const_meldungs),
+                delaymsg_enable=delaymsg_enable,
+                delaymsg_mindelay=delaymsg_mindelay,
+                etermmsg_enable=etermmsg_enable,
+                etermmsg_only_visible=etermmsg_only_visible,
+                nodepmsg_enable=True,
+                nortmsg_limit=nortmsg_limit)
 
-        if pe_f.done() and not joined:
+        if not self.joined and self.pe_f.done():
             try:
-                deps, meldungs, _add_data = pe_f.result()
+                self.deps, self.meldungs, _add_data = self.pe_f.result()
             except Exception as e:
                 if e.__class__ != GetdepsEndAll:
                     logger.exception("exception from getdeps")
-                deps = []
-                meldungs = [Meldung(symbol="warn", text="Fehler bei Datenabruf. Bitte Aushangfahrpläne beachten.")]
+                self.deps = []
+                self.meldungs = [Meldung(symbol="warn", text="Fehler bei Datenabruf. Bitte Aushangfahrpläne beachten.")]
             else:
-                meldungs.extend(const_meldungs)
-                for di, dep in enumerate(deps):
+                self.meldungs.extend(self.const_meldungs)
+                for di, dep in enumerate(self.deps):
                     for _mel in dep.messages:
-                        if _mel not in meldungs and ((not _mel.efa) or (efamenabled and di < limit-header-1)):
-                            meldungs.append(_mel)
+                        if _mel not in self.meldungs and ((not _mel.efa) or (efamenabled and di < self.limit-self.header-1)):
+                            self.meldungs.append(_mel)
                 _brightness = _add_data.get("brightness")
                 if _brightness is not None and _brightness != matrix.brightness:
                     matrix.brightness = _brightness
             finally:
-                joined = True
-                for _dli, _depline in enumerate(deplines):
-                    _depline.update(deps[_dli] if _dli < len(deps) else None)
-                meldung_scroller.update(meldungs)
+                self.joined = True
+                for _dli, _depline in enumerate(self.deplines):
+                    _depline.update(self.deps[_dli] if _dli < len(self.deps) else None)
+                if self.meldung_scroller is not None:
+                    self.meldung_scroller.update(self.meldungs)
+                return True
 
-        blinkstep = i % 40 < 20
+        return False
+
+    def render(self, canvas: FrameCanvas) -> None:
+        if self.bgColor_t is not None:
+            # TODO: nur innerhalb der Grenzen vom Display fillen
+            canvas.Fill(*self.bgColor_t)
+
+        blinkstep = self.i % 40 < 20
         blinkon = blinkstep or not blink
-        if rightbar or header:
-            currenttime = localtime()
-        r = y_min + text_startr
+        r = self.y_min + self.text_startr
+
+        if self.header:
+            self.stop_scroller.update(ppm_stop if stopsymbol else None, headername or (self.deps and self.deps[0].stopname) or "")
+            self.stop_scroller.render(canvas, r)
+
+            if self.clock_in_header:
+                graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
+
+            r += self.lineheight
+
+        meldungvisible = bool(self.meldung_scroller is not None and self.meldungs)
+        for dep_i in range(min(len(self.deplines), self.limit - meldungvisible - self.header)):
+            self.deplines[dep_i].render(canvas, r, blinkon)
+            r += self.lineheight
+
+        if meldungvisible:
+            self.meldung_scroller.render(canvas, r)
+            r += self.lineheight
+
+        if progress:
+            x_pixels = self.x_max - self.x_min + 1
+            x_progress = int(x_pixels-1 - ((self.i % self.step)*((x_pixels-1)/self.step)))
+            graphics.DrawLine(canvas, self.x_min, self.y_max, self.x_min+x_progress, self.y_max, self.progressColor)
+
+        self.i += 1
+
+
+def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
+    canvas = matrix.CreateFrameCanvas(writeppm)
+    x_min = 0
+    y_min = 0
+    x_max = canvas.width - 1
+    y_max = canvas.height - 1
+    display_x_min = x_min
+    display_y_min = y_min
+    display_x_max = x_max - (rightbar and (rightbarwidth + spaceDr))
+    display_y_max = y_max
+
+    scrollColor = lighttextColor
+
+    calc_limit = (display_y_max - display_y_min + 1 - args.firstrow_y - fonttext.height + fonttext.baseline + args.line_height) // args.line_height
+    deplines = [StandardDepartureLine(
+        lx=display_x_min,
+        rx=display_x_max,
+        font=fonttext,
+        textColor=textColor,
+        texthighlightColor=texthighlightColor,
+        space_linenum_direction=spaceld,
+        space_direction_countdown=spacedc,
+        space_countdown_platform=spacecp,
+        linenumopt=linenumopt,
+        countdownopt=countdownopt,
+        platformopt=platformopt,
+        realtimecolors=realtimecolors
+    ) for _ in range(args.lines or calc_limit)]
+
+    # xmax hier muss man eigentlich immer neu berechnen
+    scrollx_stop_xmax = display_x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(localtime())))
+    stop_scroller = SimpleScrollline(display_x_min, scrollx_stop_xmax, symtextoffset, fonttext, scrollColor, noscroll=not headerscroll)
+
+    scrollx_msg_xmax = x_max if scrollmsg_through_rightbar else display_x_max
+    meldung_scroller = MultisymbolScrollline(display_x_min, scrollx_msg_xmax, symtextoffset, fonttext, scrollColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
+
+    display = Display(
+        pe=pe,
+        x_min=display_x_min,
+        y_min=display_y_min,
+        x_max=display_x_max,
+        y_max=display_y_max,
+        font=fonttext,
+        lineheight=args.line_height,
+        text_startr=args.firstrow_y,
+        textColor=textColor,
+        texthighlightColor=texthighlightColor,
+        clockColor=graytextColor,
+        progressColor=barColor,
+        bgColor_t=matrixbgColor_t,
+        step=args.update_steps,
+        deplines=deplines,
+        stop_scroller=stop_scroller if args.enable_top else None,
+        clock_in_header=not rightbar,
+        meldung_scroller=meldung_scroller)
+
+    logger.info(f"started loop with depfunctions {', '.join(x[0] for x in display.depfunctions.keys())}")
+    while True:
+        # time_measure = monotonic()
+        canvas.Clear()
 
         if rightbar:
             # x_min, y_min usw. fehlen
-            rightbarfn(canvas, x_max+1+spaceDr, 0, rightbarwidth, rightbarfont, rightbarcolor, i, step, currenttime, *rightbarargs)
+            rightbarfn(canvas, display.x_max+1+spaceDr, 0, rightbarwidth, rightbarfont, rightbarcolor, display.i, display.step, localtime(), *rightbarargs)
 
-        if header:
-            stop_scroller.update(ppm_stop if stopsymbol else None, headername or (deps and deps[0].stopname) or "")
-            stop_scroller.render(canvas, r)
-
-            if not rightbar:
-                graphics.DrawText(canvas, fonttext, scrollx_stop_xmax+1+header_spacest, r, graytextColor, clockstr_tt(currenttime))
-
-            r += lineheight
-
-        for dep_i in range(min(len(deplines), limit - bool(meldungs) - header)):
-            deplines[dep_i].render(canvas, r, blinkon)
-            r += lineheight
-
-        if meldungs:
-            meldung_scroller.render(canvas, r)
-            r += lineheight
-
-        if progress:
-            x_progress = int(x_pixels-1 - ((i % step)*((x_pixels-1)/step)))
-            graphics.DrawLine(canvas, x_min, y_max, x_min+x_progress, y_max, barColor)
+        display.update()
+        display.render(canvas)
 
         if writeppm:
             canvas.ppm(ppmfile)
@@ -583,12 +659,11 @@ def loop(matrix, pe):
                 matrix.brightness = ((matrix.brightness - gpiotest_minb + 1) % (gpiotest_maxb - gpiotest_minb + 1)) + gpiotest_minb
         '''
 
-        # _st = interval-monotonic()+time_measure
+        # _st = sleep_interval-monotonic()+time_measure
         # if _st > 0:
         #     sleep(_st)
-        if interval > 0:
-            sleep(interval)
-        i += 1
+        if sleep_interval > 0:
+            sleep(sleep_interval)
 
 
 if __name__ == "__main__":
@@ -602,7 +677,7 @@ if __name__ == "__main__":
     while True:
         try:
             with ProcessPoolExecutor(max_workers=1) as ppe:
-                loop(matrix, ppe)
+                loop(matrix, ppe, args.sleep_interval)
         except KeyboardInterrupt:
             break
         except Exception:
