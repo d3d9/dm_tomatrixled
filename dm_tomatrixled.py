@@ -1,13 +1,16 @@
 #!/usr/bin/env python3.7
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 from argparse import ArgumentParser
 from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from itertools import cycle
 # from subprocess import check_output
 from sys import stderr
 from time import localtime, sleep  # , monotonic
-from typing import List, Iterable, Tuple, Optional, NoReturn, Union
+from typing import List, Iterable, Tuple, Optional, NoReturn, Union, Callable, Sequence
 
 from loguru import logger
 from PIL import Image
@@ -47,6 +50,9 @@ parser.add_argument("-l", "--line-height", action="store", help="Departure line 
 parser.add_argument("-f", "--firstrow-y", action="store", help="(text_startr) Where to start with the rows vertically (bottom pixel). Default: 6", default=6, type=int)
 parser.add_argument("-w", "--linenum-width", action="store", help="pixels for line number. Default: 20", default=20, type=int)
 parser.add_argument("--lines", action="store", help="Force specific number of lines (for example if different chain lengths are used)", type=int)
+parser.add_argument("--columns", action="store", help="Departure columns per line. Default: 1", default=1, type=int)
+parser.add_argument("--column-spacing", action="store", help="Space in pixels between columns. Default: 0", default=0, type=int)
+parser.add_argument("--column-zigzag", action="store_true", help="Show departures in columns ordered from left->right, left->right etc. instead of top->bottom, top->bottom")
 parser.add_argument("--platform-width", action="store", help="pixels for platform, 0 to disable. Default: 0", default=0, type=int)
 parser.add_argument("--place-string", action="append", help="Strings that are usually at the beginning of stop names, to be filtered out (for example (default:) \"Hagen \", \"HA-\")", default=[], type=str, dest="place_strings")
 parser.add_argument("--ignore-infotype", action="append", help="EFA: ignore this 'infoType' (can be used multiple times)", default=[], type=str)
@@ -366,7 +372,6 @@ class Display:
             x_max: int,
             y_max: int,
             font: graphics.Font,
-            lineheight: int,
             text_startr: int,
             textColor: graphics.Color,
             texthighlightColor: graphics.Color,
@@ -374,17 +379,21 @@ class Display:
             progressColor: graphics.Color,
             bgColor_t: Optional[Tuple[int, int, int]],
             step: int,
+            depcolumns: Sequence[Tuple[int, int]],
+            depcolumns_zigzag: bool,
             deplines: List[StandardDepartureLine],
+            after_dep_lineheight: int,
             stop_scroller: Optional[Union[MultisymbolScrollline, SimpleScrollline]],
+            after_stop_lineheight: Optional[int],
             clock_in_header: Optional[bool],
-            meldung_scroller: Optional[Union[MultisymbolScrollline, SimpleScrollline]]):
+            meldung_scroller: Optional[Union[MultisymbolScrollline, SimpleScrollline]],
+            after_meldung_lineheight: Optional[int]):
         self.pe = pe
         self.x_min = x_min
         self.y_min = y_min
         self.x_max = x_max
         self.y_max = y_max
         self.font = font
-        self.lineheight = lineheight
         self.text_startr = text_startr
         self.textColor = textColor
         self.texthighlightColor = texthighlightColor
@@ -392,18 +401,39 @@ class Display:
         self.progressColor = progressColor
         self.bgColor_t = bgColor_t
         self.step = step
+        self.depcolumns = depcolumns
+        self.depcolumns_zigzag = depcolumns_zigzag
         self.deplines = deplines
+        self.after_dep_lineheight = after_dep_lineheight
         self.stop_scroller = stop_scroller
+        self.after_stop_lineheight = after_stop_lineheight
         self.clock_in_header = clock_in_header
         self.meldung_scroller = meldung_scroller
+        self.after_meldung_lineheight = after_meldung_lineheight
+
+        self.header = self.stop_scroller is not None
+        self.header_hiddendeps: int = len(self.depcolumns)
+        self.meldung_hiddendeps: int = len(self.depcolumns)
+
+        self.columnaccessfn: Callable[[int, Display], int]
+        self.dep_lineheight_gen: Callable[[Display], Iterable]
+        if self.depcolumns_zigzag:
+            self.columnaccessfn = lambda _dli, disp: _dli % len(disp.depcolumns)
+            self.dep_lineheight_gen = lambda disp: cycle((0,)*(len(disp.depcolumns)-1)+(args.line_height,))
+        else:
+            self.columnaccessfn = lambda _dli, disp: _dli//disp.depcolumnheight
+            self.dep_lineheight_gen = lambda disp: cycle((args.line_height,)*(disp.depcolumnheight-1)+(-args.line_height*(disp.depcolumnheight-1),))
 
         self.i = 0
-        self.limit = len(deplines)
+        self.meldungvisible = False
+        self.depsvisible = 0
+        self.depcolumnheight = 0
+
+        # aktuell wird angenommen, dass es genug deplines gibt, um auch die header-zeile mit zu benutzen, auch wenn von anfang an klar ist, dass dies nicht so sein wird
+        self.limit = len(deplines) - self.header*self.header_hiddendeps
         self.deps: List[Departure] = []
         self.const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
         self.meldungs: List[Meldung] = self.const_meldungs.copy()
-
-        self.header = self.stop_scroller is not None
 
         # "volles" Beispiel in dm_depdata.py
         depfun_efa: type_depfns = {
@@ -504,11 +534,12 @@ class Display:
                 getdeps,
                 depfunctions=self.depfunctions,
                 getdeps_timezone=tz,
-                getdeps_lines=self.limit-self.header,
+                getdeps_lines=self.limit,
                 getdeps_placelist=placelist,
                 getdeps_mincountdown=countdownlowerlimit,
                 getdeps_max_retries=maxkwaretries,
                 extramsg_messageexists=bool(self.const_meldungs),
+                extramsg_messagelines = self.meldung_hiddendeps,
                 delaymsg_enable=delaymsg_enable,
                 delaymsg_mindelay=delaymsg_mindelay,
                 etermmsg_enable=etermmsg_enable,
@@ -528,15 +559,21 @@ class Display:
                 self.meldungs.extend(self.const_meldungs)
                 for di, dep in enumerate(self.deps):
                     for _mel in dep.messages:
-                        if _mel not in self.meldungs and ((not _mel.efa) or (efamenabled and di < self.limit-self.header-1)):
+                        if _mel not in self.meldungs and ((not _mel.efa) or (efamenabled and di < self.limit-self.meldung_hiddendeps)):
                             self.meldungs.append(_mel)
                 _brightness = _add_data.get("brightness")
                 if _brightness is not None and _brightness != matrix.brightness:
                     matrix.brightness = _brightness
             finally:
                 self.joined = True
+                self.meldungvisible = bool(self.meldung_scroller is not None and self.meldungs)
+                self.depsvisible = min(len(self.deplines), self.limit - self.meldungvisible*self.meldung_hiddendeps)
+                self.depcolumnheight = int(Decimal(self.depsvisible / len(self.depcolumns)).quantize(0, ROUND_HALF_UP))
                 for _dli, _depline in enumerate(self.deplines):
                     _depline.update(self.deps[_dli] if _dli < len(self.deps) else None)
+                    if _dli < self.depsvisible:
+                        _depline.lx, _depline.rx = self.depcolumns[self.columnaccessfn(_dli, self)]
+                        _depline.setminmax()
                 if self.meldung_scroller is not None:
                     self.meldung_scroller.update(self.meldungs)
                 return True
@@ -550,6 +587,7 @@ class Display:
 
         blinkstep = self.i % 40 < 20
         blinkon = blinkstep or not blink
+        dep_lineheights = self.dep_lineheight_gen(self)
         r = self.y_min + self.text_startr
 
         if self.header:
@@ -559,16 +597,22 @@ class Display:
             if self.clock_in_header:
                 graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
 
-            r += self.lineheight
+            r += self.after_stop_lineheight
 
-        meldungvisible = bool(self.meldung_scroller is not None and self.meldungs)
-        for dep_i in range(min(len(self.deplines), self.limit - meldungvisible - self.header)):
-            self.deplines[dep_i].render(canvas, r, blinkon)
-            r += self.lineheight
+        _deprs = set()
+        _deprs.add(r)
+        for _dli, _depline in enumerate(self.deplines):
+            _depline.render(canvas, r, blinkon)
+            if _dli < self.depsvisible - 1:
+                r += next(dep_lineheights)
+                _deprs.add(r)
+            else:
+                r = max(_deprs) + self.after_dep_lineheight
+                break
 
-        if meldungvisible:
+        if self.meldungvisible:
             self.meldung_scroller.render(canvas, r)
-            r += self.lineheight
+            r += self.after_meldung_lineheight
 
         if progress:
             x_pixels = self.x_max - self.x_min + 1
@@ -591,10 +635,21 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
 
     scrollColor = lighttextColor
 
+    def make_columns(l: int, r: int, c: int, spacing: int = 0) -> Sequence[Tuple[int, int]]:
+        colwidth = ((r-l+1) // c) - (c-1)*(spacing - (spacing // 2))
+        cols = []
+        _startpos = l
+        for ci in range(c):
+            cols.append((_startpos, _startpos + colwidth - 1))
+            _startpos += colwidth + spacing
+        return tuple(cols)
+
+    depcolumns = make_columns(display_x_min, display_x_max, args.columns, args.column_spacing)
+
     calc_limit = (display_y_max - display_y_min + 1 - args.firstrow_y - fonttext.height + fonttext.baseline + args.line_height) // args.line_height
     deplines = [StandardDepartureLine(
-        lx=display_x_min,
-        rx=display_x_max,
+        lx=_l,
+        rx=_r,
         font=fonttext,
         textColor=textColor,
         texthighlightColor=texthighlightColor,
@@ -605,7 +660,7 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
         countdownopt=countdownopt,
         platformopt=platformopt,
         realtimecolors=realtimecolors
-    ) for _ in range(args.lines or calc_limit)]
+    ) for _l, _r in depcolumns for _ in range(args.lines or calc_limit)]
 
     # xmax hier muss man eigentlich immer neu berechnen
     scrollx_stop_xmax = display_x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(localtime())))
@@ -621,7 +676,6 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
         x_max=display_x_max,
         y_max=display_y_max,
         font=fonttext,
-        lineheight=args.line_height,
         text_startr=args.firstrow_y,
         textColor=textColor,
         texthighlightColor=texthighlightColor,
@@ -629,10 +683,15 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
         progressColor=barColor,
         bgColor_t=matrixbgColor_t,
         step=args.update_steps,
+        depcolumns=depcolumns,
+        depcolumns_zigzag=args.column_zigzag,
         deplines=deplines,
+        after_dep_lineheight=args.line_height,
         stop_scroller=stop_scroller if args.enable_top else None,
+        after_stop_lineheight=args.line_height,
         clock_in_header=not rightbar,
-        meldung_scroller=meldung_scroller)
+        meldung_scroller=meldung_scroller,
+        after_meldung_lineheight=args.line_height)
 
     logger.info(f"started loop with depfunctions {', '.join(x[0] for x in display.depfunctions.keys())}")
     while True:
