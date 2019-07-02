@@ -506,8 +506,8 @@ def getdeps(
         getdeps_mincountdown: int = -9,
         getdeps_max_retries: int = 2,
         getdeps_sleep_on_retry_factor: float = 0.5,
-        message_lines: int = 1,
         extramsg_messageexists: Optional[bool] = None,
+        extramsg_messagelines: int = 1,
         delaymsg_enable: bool = True,
         delaymsg_mindelay: int = 1,
         etermmsg_enable: bool = True,
@@ -544,7 +544,6 @@ def getdeps(
                 logger.trace(f"'{path_name}' returned {len(_result_deps)} deps ({sum(dep.realtime for dep in _result_deps)} rt)"
                              + f", {len(_result_msgs)} msgs, {len(_result_data)} data items")
     extramsg_messageexists = bool(messages)
-
     # allg. Datenverschoenerung
     for dep in deps:
         # ggf. anders runden?
@@ -565,8 +564,9 @@ def getdeps(
             dep.delay = 0
     sorteddeps = sorted([dep for dep in deps if (dep.disp_countdown or 0) >= getdeps_mincountdown],
                         key=lambda dep: (dep.disp_countdown, not dep.cancelled, -dep.delay, not dep.earlytermination))
-    if _makemessages(sorteddeps, getdeps_lines - message_lines): extramsg_messageexists = True
-    messages.extend(_extramessages(sorteddeps, getdeps_lines, extramsg_messageexists, message_lines,
+    if _makemessages(sorteddeps, getdeps_lines - extramsg_messagelines): extramsg_messageexists = True
+    messages.extend(_extramessages(sorteddeps, getdeps_lines,
+                                   extramsg_messageexists, extramsg_messagelines,
                                    delaymsg_enable, delaymsg_mindelay,
                                    etermmsg_enable, etermmsg_only_visible,
                                    nodepmsg_enable, nortmsg_limit))  # erweitert selber schon die dep.messages
@@ -598,23 +598,23 @@ def _makemessages(sorteddeps: List[Departure], depline_count: int) -> bool:
     return visible_message_exists
 
 
-def _extramessages(sorteddeps: List[Departure], departure_lines: int, messageexists: bool, message_lines: int,
+def _extramessages(sorteddeps: List[Departure], departure_lines: int,
+                   message_exists: bool, message_lines: int,
                    delaymsg_enable: bool = True, delaymsg_mindelay: int = 1,
                    etermmsg_enable: bool = True, etermmsg_only_visible: bool = True,
                    nodepmsg_enable: bool = True, nortmsg_limit: Optional[int] = 20) -> List[Meldung]:
     general_messages: List[Meldung] = []
     delaymsg_i: Set[int] = set()
     etermmsg_i: Set[int] = set()
-    # departure_lines: abfahrten + ggf. textzeile. header egal, wird vor aufruf von aussen abgezogen.
-    message_from_i = departure_lines - message_lines
-    last_dep_i = (message_from_i - 1) if message_lines == 0 else (message_from_i - messageexists)
-    message_needed = messageexists
+    hidden_i = set(range(departure_lines - message_lines, departure_lines))
+    message_from_i = min(hidden_i, default=departure_lines)
+    pot_last_dep_i = message_from_i - 1
+    last_dep_i = (message_from_i if message_exists else departure_lines) - 1
+    message_needed = message_exists
     for di, dep in enumerate(sorteddeps):
-        # TODO: Eventuell muss dies (innerhalb sorteddeps[...]) angepasst werden, damit es mit Bereichen von "letzten" Abfahrten anstatt wie bisher 1 "letzter" funktioniert!
-        #                                                                                                                                  ↓↓↓↓↓
-        if delaymsg_enable and dep.delay >= delaymsg_mindelay and di >= last_dep_i and dep.deptime_planned <= sorteddeps[last_dep_i-bool(di == last_dep_i)].deptime:
-            if di >= message_from_i:
-                delaymsg_i.add(di)
+        if (delaymsg_enable and dep.delay >= delaymsg_mindelay and di >= message_from_i
+                and dep.deptime_planned <= sorteddeps[pot_last_dep_i if di in hidden_i else last_dep_i].deptime):
+            delaymsg_i.add(di)
             if di > last_dep_i:
                 message_needed = True
         if etermmsg_enable and dep.earlytermination:
@@ -632,8 +632,8 @@ def _extramessages(sorteddeps: List[Departure], departure_lines: int, messageexi
             # erstmal das gleiche symbol, eigenes sah nach etwas zu viel aus..
             dep.messages.append(Meldung(symbol="delay", text=_txt))
     for eterm_di in sorted(etermmsg_i):
-        # > message_from_i weil wenn verdeckt wird ist message auch ok, "überschreibend"..
-        if etermmsg_only_visible and eterm_di > message_from_i:
+        # >= departure_lines weil wenn es durch eine Meldung verdeckt wird ist es auch ok, "überschreibend"..
+        if etermmsg_only_visible and eterm_di >= departure_lines:
             break
         dep = sorteddeps[eterm_di]
         dephr, depmin = dep.deptime_planned.timetuple()[3:5]
