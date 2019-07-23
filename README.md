@@ -100,23 +100,17 @@ Einiges vom Code kann vermutlich auch außerhalb dieses Projekts und außerhalb 
 
 # Installation
 __Voraussetzungen__
-* Raspberry Pi (z. B. 3 Model B+, insbesondere viel ältere sind hierfür nicht empfohlen) mit (micro)SD-Karte, Netzteil usw.
+* Raspberry Pi (z. B. 3 Model B+ oder 4; insbesondere die viel älteren Modelle oder auch Pi Zero sind hierfür nicht empfohlen) mit (micro)SD-Karte, Netzteil usw.
 * LED-Matrizen und alles dafür benötigte, siehe https://github.com/hzeller/rpi-rgb-led-matrix/blob/master/README.md.
 
 __Vorgehensweise__
 1. Raspbian Lite auf dem Pi installieren, (empfohlen:) ssh aktivieren (leere Datei "ssh" in der Bootpartition erstellen) und verbinden.
 2. apt-get update und upgrade durchführen, dann grundsätzliche Konfiguration mit raspi-config vornehmen (z. B. WLAN einrichten, Interfaces ausschalten, ...), ggf. weiteres wie z. B. tmpfs unter /tmp einrichten, isolcpus=3 in /boot/cmdline.txt ergänzen, dtparam=audio=off in /boot/config.txt ergänzen, mehr siehe oben verlinktes Readme. Danach neustarten.
-3. CPython 3.7.2 kompilieren und installieren, siehe z. B. [diese Anleitung](https://gist.github.com/Mcublog/2d8a1aa90c3910c0f8e9a1d9d40c7409).
+3. CPython 3.7 oder höher kompilieren und installieren, siehe z. B. [diese Anleitung](https://gist.github.com/Mcublog/2d8a1aa90c3910c0f8e9a1d9d40c7409) (Versionsnummern ggf. erhöhen).
 4. ```apt-get install git libjpeg9-dev```, ```pip3.7 install loguru requests Pillow```
 5. ```git clone```: [d3d9/rpi-rgb-led-matrix](https://github.com/d3d9/rpi-rgb-led-matrix) sowie [d3d9/dm_tomatrixled](https://github.com/d3d9/dm_tomatrixled) (hier).
 6. Im rpi-rgb-led-matrix-Verzeichnis: ```sudo make -j4 install-python PYTHON="$(which python3.7)"```
 7. Im dm_tomatrixled-Verzeichnis: siehe Beispiele, das Programm (als Root) ausführen, ggf. Optionen, insbesondere bzgl. der Matrix, anpassen. Bei Darstellungsproblemen Hinweise unter [hzeller/rpi-rgb-led-matrix/README.md](https://github.com/hzeller/rpi-rgb-led-matrix/blob/master/README.md) beachten. Weitere Probleme gerne hier melden.
-
-__Hinweis für Raspberry Pi 3 Model A+__:    
-Die Bibliothek funktioniert aktuell nicht direkt damit, es muss https://github.com/hzeller/rpi-rgb-led-matrix/pull/740 eingearbeitet werden, sonst stürzt der Pi ab.
-
-__Hinweis für manche Modelle, u. a. Zero W und 3 A+__ _(welche genau und wieso genau diese?)_:    
-Es kommt in der Zeit nach dem Start des Pis zu Verzögerungen beim Erstellen des ProcessPoolExecutors, da os.urandom(32) aufgerufen wird, was bei nicht vorhandener Entropie wohl blockiert. schöne Lösung: unbekannt. Model 3 B+ hat dieses Problem nicht (oder liegt es an der Version von irgendwas, softwareseitig?).
 
 ### Service
 Im Verzeichnis [service/](service/) befinden sich Dateien, mit denen man das Programm beim Systemstart automatisch ausführen lassen kann. Es kann je nach Bedarf angepasst werden.    
