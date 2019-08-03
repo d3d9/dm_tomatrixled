@@ -47,7 +47,7 @@ parser.add_argument("--no-prop", action="store_true", help="Do not use proportio
 parser.add_argument("-n", "--show-zero", action="store_false", help="Show a zero instead of a bus when countdown is 0")
 parser.add_argument("-d", "--daemon", action="store_true", help="Run as daemon")
 parser.add_argument("-l", "--line-height", action="store", help="Departure line height. Default: 8", default=8, type=int)
-parser.add_argument("-f", "--firstrow-y", action="store", help="(text_startr) Where to start with the rows vertically (bottom pixel). Default: 6", default=6, type=int)
+parser.add_argument("-f", "--firstrow-y", action="store", help="(text_startr) Where to start with the rows vertically (bottom pixel). Default: 8", default=8, type=int)
 parser.add_argument("-w", "--linenum-width", action="store", help="pixels for line number. Default: 20", default=20, type=int)
 parser.add_argument("--lines", action="store", help="Force specific number of lines (for example if different chain lengths are used)", type=int)
 parser.add_argument("--columns", action="store", help="Departure columns per line. Default: 1", default=1, type=int)
