@@ -21,7 +21,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getdbrestdeps, getextmsgdata
+from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getfptfrestdeps, getextmsgdata
 
 
 ### Logging
@@ -38,6 +38,7 @@ if datafilelog:
 parser = ArgumentParser()
 parser.add_argument("-s", "--stop-ifopt", action="store", help="IFOPT reference of stop or area or platform. Default: de:05914:2114:0:1", default="de:05914:2114:0:1", type=str)
 parser.add_argument("--ibnr", action="store", help="IBNR. With this set, there will be train data only from DB and others only from EFA. (temporary parameter)", default="", type=str)
+parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary parameter)", default="", type=str)
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
@@ -355,6 +356,12 @@ dbrestserver = 'http://d3d9.xyz:3000'
 dbrestserver_backup = 'https://2.db.transport.rest'
 dbrestibnr = args.ibnr
 
+bvgrestserver = 'http://d3d9.xyz:3001'
+bvgrestserver_backup = 'https://2.bvg.transport.rest'
+# vbbrestserver = ...
+bvgrestid = args.bvg_id
+bvgexclremarktypes = {'hint'}
+
 delaymsg_enable = True
 delaymsg_mindelay = 2
 etermmsg_enable = True
@@ -459,6 +466,23 @@ class Display:
                                 ],
             }
 
+        depfun_bvg: type_depfns = {
+            ("bvg-main", True): [(getfptfrestdeps, [{'serverurl': bvgrestserver,
+                                                     'timeout': servertimeout,
+                                                     'station_id': bvgrestid,
+                                                     'limit': self.limit*args.limit_multiplier,
+                                                     'exclRemarkTypes': bvgexclremarktypes,
+                                                    },
+                                                    {'serverurl': bvgrestserver_backup,
+                                                     'timeout': servertimeout,
+                                                     'station_id': bvgrestid,
+                                                     'limit': self.limit*args.limit_multiplier,
+                                                     'exclRemarkTypes': bvgexclremarktypes,
+                                                    },
+                                                   ])
+                                ],
+            }
+
         depfun_efadb: type_depfns = {
             ("efa-notr", True): [(getefadeps, [{'serverurl': efaserver,
                                                 'timeout': servertimeout,
@@ -482,19 +506,19 @@ class Display:
                                                },
                                               ])
                                 ],
-            ("dbre-tr", True): [(getdbrestdeps, [{'serverurl': dbrestserver,
-                                                   'timeout': servertimeout,
-                                                   'ibnr': dbrestibnr,
-                                                   'limit': self.limit*args.limit_multiplier,
-                                                   'inclMOT': trainMOT,
-                                                 },
-                                                 {'serverurl': dbrestserver_backup,
-                                                   'timeout': servertimeout,
-                                                   'ibnr': dbrestibnr,
-                                                   'limit': self.limit*args.limit_multiplier,
-                                                   'inclMOT': trainMOT,
-                                                 }
-                                                ]),
+            ("dbre-tr", True): [(getfptfrestdeps, [{'serverurl': dbrestserver,
+                                                    'timeout': servertimeout,
+                                                    'station_id': dbrestibnr,
+                                                    'limit': self.limit*args.limit_multiplier,
+                                                    'inclMOT': trainMOT,
+                                                   },
+                                                   {'serverurl': dbrestserver_backup,
+                                                    'timeout': servertimeout,
+                                                    'station_id': dbrestibnr,
+                                                    'limit': self.limit*args.limit_multiplier,
+                                                    'inclMOT': trainMOT,
+                                                   }
+                                                  ]),
                                 (getefadeps, [{'serverurl': efaserver,
                                                'timeout': servertimeout,
                                                'ifopt': ifopt,
@@ -519,7 +543,7 @@ class Display:
                                ],
             }
 
-        self.depfunctions = depfun_efadb if dbrestibnr else depfun_efa
+        self.depfunctions = (depfun_efadb if dbrestibnr else depfun_efa) if not bvgrestid else depfun_bvg
         if ext_url:
             depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
             self.depfunctions.update({('ext-m+d', False): depfnlist_ext})

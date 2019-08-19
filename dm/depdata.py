@@ -300,6 +300,7 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
 # basiert hauptsächlich auf db-rest. code insgesamt noch kaum getestet
 def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
+        exclRemarkTypes: Optional[Set[str]] = None, exclRemarkCodes: Optional[Set[str]] = None,
         stripstart: Set[str] = {'Bus ', 'STR ', 'ABR ', 'ERB ', 'NWB ', 'WFB '}) -> type_depmsgdata:
     deps: List[Departure] = []
     for dep in jsondata:
@@ -335,12 +336,14 @@ def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
         cancelled = dep.get("cancelled")
         isrealtime = delaysecs is not None or cancelled == True
         deptime = dep.get("when")
+        # todo: anpassen auf scheduledWhen und realtimeWhen??
         if deptime is None:
             _former = dep.get("formerScheduledWhen")
-            if _former is None:
+            _scheduled = dep.get("scheduledWhen")
+            if _former is None and _scheduled is None:
                 logger.error(f"fptf departure without any time, skipping: {dep}")
                 continue
-            deptime = datetime.fromisoformat(_former)
+            deptime = datetime.fromisoformat(_scheduled or _former)
             deptime_planned = deptime
         else:
             deptime = datetime.fromisoformat(deptime)
@@ -355,6 +358,8 @@ def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
             # eventuell "heute nur bis ..." auswerten zu den variablen s. u.?
             _msg_type = msg.get("type")
             _msg_code = msg.get("code")  # auswerten?
+            if (exclRemarkTypes and _msg_type in exclRemarkTypes) or (exclRemarkCodes and _msg_code in exclRemarkCodes):
+                continue
             _msg_summary = msg.get("summary")
             if _msg_summary and _msg_summary.endswith('.'):
                 _msg_summary = _msg_summary[:-1]
@@ -382,15 +387,16 @@ def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
     return deps, [], {}
 
 
-def getdbrestdeps(serverurl: str, timeout: Union[int, float], ibnr: str, limit: int,
+def getfptfrestdeps(serverurl: str, timeout: Union[int, float], station_id: str, limit: int,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
+        exclRemarkTypes: Optional[Set[str]] = None, exclRemarkCodes: Optional[Set[str]] = None,
         duration: int = 120, language: str = "de") -> type_depmsgdata:
     payload: type_getpayload = {'language': language, 'duration': duration}
-    r = get(f"{serverurl}/stations/{ibnr}/departures", timeout=timeout, params=payload)
+    r = get(f"{serverurl}/stations/{station_id}/departures", timeout=timeout, params=payload)
     r.raise_for_status()
     try:
         requestdata = r.json()
-        result = readfptfjson(requestdata, limit, inclMOT, exclMOT)
+        result = readfptfjson(requestdata, limit, inclMOT, exclMOT, exclRemarkTypes, exclRemarkCodes)
     except Exception:
         logger.debug(f"request data:\n{r.content}")
         raise
