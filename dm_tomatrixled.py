@@ -63,6 +63,7 @@ parser.add_argument("--show-start", action="store_true", help="Show startscreen 
 parser.add_argument("--disable-mintext", action="store_false", help="Don't show \"min\" after the countdown & a larger bus")
 parser.add_argument("--min-delay", action="store", help="Minimum minutes of delay for the time to be shown in red color. 1-99. Default: 4", default=4, choices=range(1, 100), type=int)
 parser.add_argument("--min-slightdelay", action="store", help="Minimum minutes of delay for the time to be shown in yellow color (set to same as --min-delay to ignore). 1-99. Default: 2", default=2, choices=range(1, 100), type=int)
+parser.add_argument("--min-negativedelay", action="store", help="Minimum minutes of negative delay for the time to be shown in a special color. -99..-1. Default: -1", default=-1, choices=range(-99, 0), type=int)
 parser.add_argument("--max-minutes", action="store", help="Maximum countdown minutes to show time in minutes instead of absolute time. -1-99. Default: 59", default=59, choices=range(-1, 100), type=int)
 parser.add_argument("--disable-blink", action="store_false", help="Disable blinking of bus/zero when countdown is 0")
 parser.add_argument("--stop-name", action="store", help="Override header (-t) stop name returned by the API. Default: none", default="", type=str)
@@ -167,7 +168,7 @@ realtimecolors = RealtimeColors(no_realtime=graphics.Color(190, 190, 190),
                                 slight_delay=graphics.Color(255, 255, 0),
                                 high_delay=graphics.Color(255, 0, 0),
                                 cancelled=graphics.Color(255, 0, 0),
-                                negative_delay=graphics.Color(0, 255, 255))
+                                negative_delay=graphics.Color(0, 255, 115))
 
 graytextColor = graphics.Color(190, 190, 190)
 lighttextColor = graphics.Color(100, 100, 100)
@@ -269,6 +270,7 @@ countdownopt = CountdownOptions(
     min_coloured_symbols=ppmmincolordict,
     mindelay=args.min_delay,
     minslightdelay=args.min_slightdelay,
+    minnegativedelay=args.min_negativedelay,
     maxmin=args.max_minutes,
     zerobus=args.show_zero,
     mintext=args.disable_mintext,

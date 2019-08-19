@@ -245,6 +245,7 @@ class CountdownOptions:
     min_coloured_symbols: Dict[graphics.Color, Image.Image]
     mindelay: int
     minslightdelay: int
+    minnegativedelay: int
     maxmin: int
     zerobus: bool
     mintext: bool
@@ -340,7 +341,7 @@ class StandardDepartureLine:
                 self.rtcolor = self.realtimecolors.high_delay
             elif self.dep.delay >= self.countdownopt.minslightdelay:
                 self.rtcolor = self.realtimecolors.slight_delay
-            elif self.dep.delay < 0:
+            elif self.dep.delay <= self.countdownopt.minnegativedelay:
                 self.rtcolor = self.realtimecolors.negative_delay
             else:
                 self.rtcolor = self.realtimecolors.no_delay
