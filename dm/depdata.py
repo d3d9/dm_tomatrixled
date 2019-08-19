@@ -67,6 +67,7 @@ class Departure:
     cancelled: Optional[bool] = None
     earlytermination: Optional[bool] = None
     headsign: Optional[str] = None
+    color: Optional[str] = None
     arrtime: Optional[datetime] = None
     arrtime_planned: Optional[datetime] = None
     disp_countdown: Optional[int] = None  # minutes
@@ -387,11 +388,14 @@ def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
     return deps, [], {}
 
 
-def getfptfrestdeps(serverurl: str, timeout: Union[int, float], station_id: str, limit: int,
+def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
+        station_id: str, limit: int, direction: Optional[str] = None,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
         exclRemarkTypes: Optional[Set[str]] = None, exclRemarkCodes: Optional[Set[str]] = None,
         duration: int = 120, language: str = "de") -> type_depmsgdata:
     payload: type_getpayload = {'language': language, 'duration': duration}
+    if direction:
+        payload['direction'] = direction
     r = get(f"{serverurl}/stations/{station_id}/departures", timeout=timeout, params=payload)
     r.raise_for_status()
     try:

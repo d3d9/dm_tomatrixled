@@ -7,6 +7,7 @@ from typing import List, Optional, Callable, Tuple, Dict, Match
 from PIL import Image
 from rgbmatrix import graphics
 from rgbmatrix.core import FrameCanvas
+from webcolors import hex_to_rgb
 
 from .drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_bottomright
 from .depdata import Departure, Meldung, MOT, trainMOT
@@ -354,9 +355,16 @@ class StandardDepartureLine:
 
         texty = self.fixedy if self.fixedy is not None else texty
 
+        if self.dep.color:
+            linenum_color = graphics.Color(*hex_to_rgb(self.dep.color))
+            linenum_bgColor = graphics.Color()
+        else:
+            linenum_color = self.linenumopt.fgColor
+            linenum_bgColor = self.linenumopt.bgColor
+
         if self.linenumopt.drawbg:
             for y in range(texty-self.linenumopt.height, texty):
-                graphics.DrawLine(canvas, self.linenum_min, y, self.linenum_max, y, self.linenumopt.bgColor)
+                graphics.DrawLine(canvas, self.linenum_min, y, self.linenum_max, y, linenum_bgColor)
 
         linenum_font, linenum_str, linenum_px, linenum_verticaloffset = fittext(
             self.dep.disp_linenum,
@@ -371,7 +379,7 @@ class StandardDepartureLine:
             alt_retext_2=self.linenumopt.retext_2)
         linenum_xpos = self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width)
 
-        graphics.DrawText(canvas, linenum_font, linenum_xpos, texty-linenum_verticaloffset, self.linenumopt.fgColor, linenum_str)
+        graphics.DrawText(canvas, linenum_font, linenum_xpos, texty-linenum_verticaloffset, linenum_color, linenum_str)
 
         directionpixel = self.deptime_x_max - self.direction_xpos
         timeoffset = 0

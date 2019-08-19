@@ -6,6 +6,7 @@ from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from requests import get
 from itertools import cycle
 # from subprocess import check_output
 from sys import stderr
@@ -39,6 +40,7 @@ parser = ArgumentParser()
 parser.add_argument("-s", "--stop-ifopt", action="store", help="IFOPT reference of stop or area or platform. Default: de:05914:2114:0:1", default="de:05914:2114:0:1", type=str)
 parser.add_argument("--ibnr", action="store", help="IBNR. With this set, there will be train data only from DB and others only from EFA. (temporary parameter)", default="", type=str)
 parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary parameter)", default="", type=str)
+parser.add_argument("--bvg-direction", action="store", help="BVG departures in direction (temporary parameter)", default="", type=str)
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
@@ -362,6 +364,7 @@ bvgrestserver = 'http://d3d9.xyz:3001'
 bvgrestserver_backup = 'https://2.bvg.transport.rest'
 # vbbrestserver = ...
 bvgrestid = args.bvg_id
+bvgdirectionid = args.bvg_direction
 bvgexclremarktypes = {'hint'}
 
 delaymsg_enable = True
@@ -473,12 +476,16 @@ class Display:
                                                      'timeout': servertimeout,
                                                      'station_id': bvgrestid,
                                                      'limit': self.limit*args.limit_multiplier,
+                                                     'direction': bvgdirectionid,
+                                                     'duration': 90,
                                                      'exclRemarkTypes': bvgexclremarktypes,
                                                     },
                                                     {'serverurl': bvgrestserver_backup,
                                                      'timeout': servertimeout,
                                                      'station_id': bvgrestid,
                                                      'limit': self.limit*args.limit_multiplier,
+                                                     'direction': bvgdirectionid,
+                                                     'duration': 90,
                                                      'exclRemarkTypes': bvgexclremarktypes,
                                                     },
                                                    ])
@@ -648,6 +655,29 @@ class Display:
         self.i += 1
 
 
+class BVGDisplay(Display):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _r = get("https://raw.githubusercontent.com/derhuerst/vbb-line-colors/master/index.json")
+        _r.raise_for_status()
+        self.linecolordict = dict()
+        for product, productcolors in _r.json().items():
+            self.linecolordict.update(productcolors)
+        for k, v in self.linecolordict.items():
+            self.linecolordict[k] = v["bg"]
+        # todo: bisherige "MOT" durch zu fptf passende product-werte ersetzen..
+        self.motcolordict = {
+            MOT.BUS: "#922A7D",
+        }
+
+    def update(self) -> bool:
+        if super().update():
+            for dep in self.deps:
+                dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
+            return True
+        return False
+
+
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)
     x_min = 0
@@ -695,7 +725,8 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     scrollx_msg_xmax = x_max if scrollmsg_through_rightbar else display_x_max
     meldung_scroller = MultisymbolScrollline(display_x_min, scrollx_msg_xmax, symtextoffset, fonttext, scrollColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
 
-    display = Display(
+    displayclass = BVGDisplay if args.bvg_id else Display
+    display = displayclass(
         pe=pe,
         x_min=display_x_min,
         y_min=display_y_min,
