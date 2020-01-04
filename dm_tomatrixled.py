@@ -562,6 +562,9 @@ class Display:
         self.pe_f = None
         self.joined = True
 
+    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
+        pass
+
     def update(self) -> bool:
         if self.joined and not self.i % self.step:
             self.joined = False
@@ -592,10 +595,12 @@ class Display:
                 self.meldungs = [Meldung(symbol="warn", text="Fehler bei Datenabruf. Bitte Aushangfahrpläne beachten.")]
             else:
                 self.meldungs.extend(self.const_meldungs)
+                nowtime = datetime.now(tz)
                 for di, dep in enumerate(self.deps):
                     for _mel in dep.messages:
                         if _mel not in self.meldungs and ((not _mel.efa) or (efamenabled and di < self.limit-self.meldung_hiddendeps)):
                             self.meldungs.append(_mel)
+                    self.additional_update(nowtime, di, dep)
                 _brightness = _add_data.get("brightness")
                 if _brightness is not None and _brightness != matrix.brightness:
                     matrix.brightness = _brightness
@@ -672,13 +677,8 @@ class BVGDisplay(Display):
             MOT.BUS: "#922A7D",
         }
 
-    def update(self) -> bool:
-        if super().update():
-            for dep in self.deps:
-                dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
-            return True
-        return False
-
+    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
+        dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
 
 class HSTDisplay(Display):
     def __init__(self, *args, **kwargs):
@@ -695,13 +695,10 @@ class HSTDisplay(Display):
             MOT.BUS: "#922A7D",
         }
 
-    def update(self) -> bool:
-        if super().update():
-            for dep in self.deps:
-                dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
-            return True
-        return False
-
+    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
+        dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
+        if dep.disp_countdown == 1 and (dep.deptime-nowtime).total_seconds() < 35:
+            dep.disp_countdown = 0
 
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)
