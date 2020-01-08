@@ -341,7 +341,7 @@ countdownlowerlimit = -9
 min_timeout = 10
 servertimeout = max(min_timeout, (args.sleep_interval*args.update_steps)/2)
 tz = datetime.utcnow().astimezone().tzinfo
-maxkwaretries = 3
+maxkwaretries = 4
 
 efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
@@ -661,44 +661,38 @@ class Display:
 
         self.i += 1
 
+class LocalColorDisplay(Display):
+    @staticmethod
+    def _get_color_dict():
+        raise NotImplementedError
 
-class BVGDisplay(Display):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.linecolordict = dict()
+        for product, productcolors in self.__class__._get_color_dict().items():
+            self.linecolordict.update(productcolors)
+        for k, v in self.linecolordict.items():
+            self.linecolordict[k] = v["bg"]
+        # todo: bisherige "MOT" durch zu fptf passende product-werte ersetzen..
+        self.motcolordict = {
+            MOT.BUS: "#922A7D",
+        }
+
+    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
+        dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
+
+class BVGDisplay(LocalColorDisplay):
+    @staticmethod
+    def _get_color_dict():
         _r = get("https://raw.githubusercontent.com/derhuerst/vbb-line-colors/master/index.json")
         _r.raise_for_status()
-        self.linecolordict = dict()
-        for product, productcolors in _r.json().items():
-            self.linecolordict.update(productcolors)
-        for k, v in self.linecolordict.items():
-            self.linecolordict[k] = v["bg"]
-        # todo: bisherige "MOT" durch zu fptf passende product-werte ersetzen..
-        self.motcolordict = {
-            MOT.BUS: "#922A7D",
-        }
+        return _r.json()
 
-    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
-        dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
-
-class HSTDisplay(Display):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class HSTDisplay(LocalColorDisplay):
+    @staticmethod
+    def _get_color_dict():
         with open('./res/hstcolors.json', 'r') as hstcolorfile:
-            hstcolordict = json_load(hstcolorfile)
-        self.linecolordict = dict()
-        for product, productcolors in hstcolordict.items():
-            self.linecolordict.update(productcolors)
-        for k, v in self.linecolordict.items():
-            self.linecolordict[k] = v["bg"]
-        # todo: bisherige "MOT" durch zu fptf passende product-werte ersetzen..
-        self.motcolordict = {
-            MOT.BUS: "#922A7D",
-        }
-
-    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
-        dep.color = self.linecolordict.get(dep.linenum) or self.motcolordict.get(dep.mot)
-        if dep.disp_countdown == 1 and (dep.deptime-nowtime).total_seconds() < 35:
-            dep.disp_countdown = 0
+            return json_load(hstcolorfile)
 
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)

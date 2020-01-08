@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import lru_cache
 from re import Pattern, match as re_match
 from typing import List, Optional, Callable, Tuple, Dict, Match
@@ -304,6 +305,7 @@ class StandardDepartureLine:
         self.fixedy = fixedy
 
         self.dep: Optional[Departure] = None
+        self.dep_tz: Optional[timezone] = None
         self.rtcolor: graphics.Color = self.realtimecolors.no_realtime
         self.dirtextcolor: graphics.Color = self.textColor
 
@@ -334,6 +336,8 @@ class StandardDepartureLine:
         self.dep = dep
         if self.dep is None:
             return
+
+        self.dep_tz = self.dep.deptime.tzinfo
 
         if self.dep.realtime:
             if self.dep.cancelled:
@@ -384,19 +388,23 @@ class StandardDepartureLine:
         directionpixel = self.deptime_x_max - self.direction_xpos
         timeoffset = 0
 
+        # dep_countdown = self.dep.disp_countdown
+        dep_countdown_secs: int = (self.dep.deptime - datetime.now(self.dep_tz)).total_seconds()
+        dep_countdown: int = 0 if (-80 < dep_countdown_secs < 35) else int((dep_countdown_secs + 60) // 60)
+
         if self.dep.cancelled:
             drawppm_bottomright(canvas, self.countdownopt.cancelled_symbol, self.deptime_x_max, texty, transp=True)
             timeoffset += self.countdownopt.cancelled_symbol.size[0]
-        elif self.dep.disp_countdown > self.countdownopt.maxmin:
+        elif dep_countdown > self.countdownopt.maxmin:
             timestr = clockstr_tt(self.dep.deptime.timetuple())
             timestrpx = textpx(self.countdownopt.font, timestr)
             graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx + 1, texty, self.rtcolor, timestr)
             timeoffset += timestrpx
-        elif blinkon and self.dep.disp_countdown == 0 and self.countdownopt.zerobus:
+        elif blinkon and dep_countdown == 0 and self.countdownopt.zerobus:
             drawppm_bottomright(canvas, self.countdownopt.mot_coloured_symbols[self.dep.mot][self.rtcolor], self.deptime_x_max, texty, transp=True)
             timeoffset += self.countdownopt.mot_symbols[self.dep.mot].size[0]
-        elif self.dep.disp_countdown or blinkon:
-            timestr = str(self.dep.disp_countdown)
+        elif dep_countdown or blinkon:
+            timestr = str(dep_countdown)
             timestrpx = textpx(self.countdownopt.font, timestr)
             graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx - ((self.countdownopt.min_symbol.size[0]-1+self.countdownopt.minoffset) if self.countdownopt.mintext else -1), texty, self.rtcolor, timestr)
             timeoffset += timestrpx
