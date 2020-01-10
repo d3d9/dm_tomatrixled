@@ -5,6 +5,7 @@ from csv import reader
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from json import dumps as json_dumps, loads as json_loads
 from re import compile as re_compile
 from requests import get
 from requests.exceptions import RequestException
@@ -298,6 +299,36 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
     return result
 
 
+def getlocaldeps(local_dep_path: str, limit: int, tz: timezone, lookbehind_sec: int = 135) -> type_depmsgdata:
+    deps: List[Departure] = []
+    logger.trace("getlocaldeps called")
+    nowtime = datetime.now(tz)
+    # in csv z. B. 2018-10-31;20:50:00;A.2;512;Hagen Stadtmitte/Volme Galerie
+    with open(local_dep_path, 'r', encoding='utf-8') as depf:
+        for deprow in reader(depf, delimiter=';'):
+            deptime = ptstrptime(deprow[0], deprow[1], tz)
+            if deptime < (nowtime - timedelta(seconds=lookbehind_sec)):
+                continue
+            arrtime = None
+            deps.append(Departure(linenum=str(deprow[3]),
+                                  direction=str(deprow[4]),
+                                  direction_planned=str(deprow[4]),
+                                  deptime=deptime,
+                                  deptime_planned=deptime,
+                                  realtime=False,
+                                  messages=[],
+                                  platformno=str(deprow[2]),
+                                  # coursesummary=,
+                                  # stopname=,
+                                  # stopid=,
+                                  # place=,
+                                  # headsign=,
+                                  arrtime=arrtime,
+                                  arrtime_planned=arrtime))
+            if len(deps) >= limit: break
+    return deps, [], {}
+
+
 # basiert hauptsächlich auf db-rest. code insgesamt noch kaum getestet
 def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
@@ -407,7 +438,7 @@ def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
     return result
 
 
-def getextmsgdata(url: str, timeout: Union[int, float]) -> type_depmsgdata:
+def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[str] = None) -> type_depmsgdata:
     messages: List[Meldung] = []
     data: type_data = {}
     r = get(url, timeout=timeout)
@@ -443,6 +474,17 @@ def getextmsgdata(url: str, timeout: Union[int, float]) -> type_depmsgdata:
             _json_msg = requestdata.get("messages")
             if _json_msg is not None:
                 messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color")) for msg in _json_msg]
+            if save_msg_path:
+                _saved = ""
+                _dump = json_dumps(_json_msg or "[]")
+                try:
+                    with open(save_msg_path, 'r') as f:
+                        _saved = f.read()
+                except IOError:
+                    pass
+                if _saved != _dump:
+                    with open(save_msg_path, 'w') as f:
+                       f.write(_dump)
             _json_config = requestdata.get("config")
             if _json_config is not None:
                 data = _json_config
@@ -477,6 +519,20 @@ def getextmsgdata(url: str, timeout: Union[int, float]) -> type_depmsgdata:
             logger.debug(f"request data:\n{r.content}")
             raise
     return [], messages, data
+
+
+def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
+    messages: List[Meldung] = []
+    logger.trace("getlocalmsg called")
+    try:
+        with open(save_msg_path, 'r') as f:
+            _saved = f.read()
+    except IOError:
+        pass
+    else:
+        _json_msg = json_loads(_saved)
+        messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color")) for msg in _json_msg]
+    return [], messages, {}
 
 
 def _getdeps_depf_list(depf_list: type_depfnlist,
@@ -660,13 +716,14 @@ def _extramessages(sorteddeps: List[Departure], departure_lines: int,
     return general_messages
 
 
-'''
-def ptstrptime(datestr: str, timestr: str) -> datetime:
+def ptstrptime(datestr: str, timestr: str, tz: Optional[timezone] = None) -> datetime:
     ts = timestr.split(":")
     hr = int(ts[0])
     dateinc = 0
     if hr >= 24:
         ts[0] = str(hr % 24)
         dateinc = hr // 24
-    return datetime.strptime(datestr + " " + ":".join(ts), '%Y-%m-%d %H:%M:%S') + timedelta(days=dateinc)
-'''
+    dt = datetime.strptime(datestr + " " + ":".join(ts), '%Y-%m-%d %H:%M:%S') + timedelta(days=dateinc)
+    if tz:
+        dt = dt.replace(tzinfo=tz)
+    return dt

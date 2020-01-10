@@ -390,7 +390,7 @@ class StandardDepartureLine:
 
         # dep_countdown = self.dep.disp_countdown
         dep_countdown_secs: int = (self.dep.deptime - datetime.now(self.dep_tz)).total_seconds()
-        dep_countdown: int = 0 if (-80 < dep_countdown_secs < 35) else int((dep_countdown_secs + 60) // 60)
+        dep_countdown: int = 0 if (-75 < dep_countdown_secs < 30) else int((dep_countdown_secs + 60) // 60)
 
         if self.dep.cancelled:
             drawppm_bottomright(canvas, self.countdownopt.cancelled_symbol, self.deptime_x_max, texty, transp=True)

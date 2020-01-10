@@ -23,7 +23,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getfptfrestdeps, getextmsgdata
+from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps
 
 
 ### Logging
@@ -44,6 +44,8 @@ parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary 
 parser.add_argument("--bvg-direction", action="store", help="BVG departures in direction (temporary parameter)", default="", type=str)
 parser.add_argument("--hst-colors", action="store_true", help="Use HST (Hagen) Netz 2020 colors (temporary parameter)")
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
+parser.add_argument("--save-msg-path", action="store", help="file path to store/load test-ext-message as a backup option", default="./log/saved_msg.json", type=str)
+parser.add_argument("--local-deps", action="store", help="file path to local csv with departures, cmdline option only applied if EFA (not DB/BVG/..) is used", default="", type=str)
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
 parser.add_argument("-r", "--rightbar", action="store", help="Enable sidebar on the right side with additional info. Disables header clock. Value: type of rightbar (1: vertical clock (default if just -r); 2: clock with icon, wide; 3: clock with progress, VRR icon, allows scrolling through it", nargs="?", const=1, default=0, type=int)
@@ -347,6 +349,9 @@ efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
 
 ext_url = args.test_ext
+save_msg_path = args.save_msg_path
+
+local_deps = args.local_deps
 
 # z. B. Aufzugsmeldungen
 # ignore_infoTypes = {"stopInfo"}
@@ -472,6 +477,8 @@ class Display:
                                               ])
                                 ],
             }
+        if local_deps:
+            depfun_efa[("efa-main", True)].append((getlocaldeps, [{'local_dep_path': local_deps, 'limit': self.limit, 'tz': tz}]))
 
         depfun_bvg: type_depfns = {
             ("bvg-main", True): [(getfptfrestdeps, [{'serverurl': bvgrestserver,
@@ -556,7 +563,9 @@ class Display:
 
         self.depfunctions = (depfun_efadb if dbrestibnr else depfun_efa) if not bvgrestid else depfun_bvg
         if ext_url:
-            depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout}])]
+            depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}])]
+            if save_msg_path:
+                depfnlist_ext.append((getlocalmsg, [{'save_msg_path': save_msg_path}]))
             self.depfunctions.update({('ext-m+d', False): depfnlist_ext})
 
         self.pe_f = None
