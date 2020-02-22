@@ -41,10 +41,6 @@ trainTMOTefa = {0, 1, 13, 14, 15, 16, 18}
 trainMOT = {MOT.TRAIN, MOT.HISPEED}
 
 
-class GetdepsEndAll(Exception):
-    pass
-
-
 @dataclass
 class Departure:
     linenum: str
@@ -76,70 +72,8 @@ class Departure:
     disp_direction: Optional[str] = None
 
 
-linenumpattern = re_compile('([a-zA-Z]+) *([0-9]+)')
-
-type_getpayload = Dict[str, Union[str, int, Iterable[Union[str, int]]]]
 type_data = Dict[str, Any]
 type_depmsgdata = Tuple[List[Departure], List[Meldung], type_data]
-type_depfnlist = List[Tuple[Callable[..., type_depmsgdata],
-                            List[Dict[str, Any]]]]
-type_depfns = Dict[Tuple[str, bool], type_depfnlist]
-'''
-# für depfunctions von getdeps:
-# etwas umfangreicheres beispiel, zu nutzen in dm_tomatrixled.py
-# (inhaltlich aber nicht realistisch)
-
-depfunctions = {("efa-main", True): [(getefadeps, [{'serverurl': efaserver,
-                                                    'timeout': max(min_timeout, (interval*step)/2),
-                                                    'ifopt': ifopt,
-                                                    'limit': limit*args.limit_multiplier,
-                                                    'ignore_infoTypes': ignore_infoTypes,
-                                                    'ignore_infoIDs': ignore_infoIDs,
-                                                    'content_for_short_titles': content_for_short_titles,
-                                                   },
-                                                   {'serverurl': efaserver_backup,
-                                                    'timeout': max(min_timeout, (interval*step)/2),
-                                                    'ifopt': ifopt,
-                                                    'limit': limit*args.limit_multiplier,
-                                                    'ignore_infoTypes': ignore_infoTypes,
-                                                    'ignore_infoIDs': ignore_infoIDs,
-                                                    'content_for_short_titles': content_for_short_titles,
-                                                   },
-                                                  ]
-                                     ),
-                                     (getefadeps, [{'serverurl': efaserver_backup,
-                                                    'timeout': max(min_timeout, (interval*step)/2),
-                                                    'ifopt': ifopt,
-                                                    'limit': limit*args.limit_multiplier,
-                                                    'ignore_infoTypes': ignore_infoTypes,
-                                                    'ignore_infoIDs': ignore_infoIDs,
-                                                    'content_for_short_titles': content_for_short_titles,
-                                                   },
-                                                   {'serverurl': efaserver,
-                                                    'timeout': max(min_timeout, (interval*step)/2),
-                                                    'ifopt': ifopt,
-                                                    'limit': limit*args.limit_multiplier,
-                                                    'ignore_infoTypes': ignore_infoTypes,
-                                                    'ignore_infoIDs': ignore_infoIDs,
-                                                    'content_for_short_titles': content_for_short_titles,
-                                                   },
-                                                  ]
-                                     ),
-                                    ],
-                ("efa-2ain",False): [(getefadeps, [{'serverurl': efaserver,
-                                                    'timeout': max(min_timeout, (interval*step)/2),
-                                                    'ifopt': ifopt,
-                                                    'limit': limit*args.limit_multiplier,
-                                                    'ignore_infoTypes': ignore_infoTypes,
-                                                    'ignore_infoIDs': ignore_infoIDs,
-                                                    'content_for_short_titles': content_for_short_titles,
-                                                   },
-                                                  ]
-                                     ),
-                                    ],
-               }
-'''
-
 
 def readefaxml(root: ET.Element, tz: timezone,
                ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
@@ -279,6 +213,8 @@ def readefaxml(root: ET.Element, tz: timezone,
                               disp_direction=disp_direction))
     return deps, stop_messages, {}
 
+
+type_getpayload = Dict[str, Union[str, int, Iterable[Union[str, int]]]]
 
 def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: int, tz: timezone,
         userealtime: bool = True, exclMOT: Optional[Set[int]] = None, inclMOT: Optional[Set[int]] = None,
@@ -535,43 +471,51 @@ def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
     return [], messages, {}
 
 
-def _getdeps_depf_list(depf_list: type_depfnlist,
-        path_name: str, max_retries: int, sleep_on_retry_factor: float) -> Optional[type_depmsgdata]:
-    for depf, depf_kwarg_list in depf_list:
+@dataclass
+class CallableWithKwargs:
+    callable: Callable[..., type_depmsgdata]
+    kwargs: Dict[str, Any]
+    retries: int
+
+@dataclass
+class DataSource:
+    name: str
+    critical: bool = True
+    to_call: List[CallableWithKwargs] = field(default_factory=list)
+
+class GetdepsEndAll(Exception):
+    pass
+
+
+def _getdeps_depf_list(datasource: DataSource, sleep_on_retry_factor: float = 0.5) -> Optional[type_depmsgdata]:
+    for call_args in datasource.to_call:
         _result = None
-        for kwa in depf_kwarg_list:
-            retryc = 0
-            while retryc <= max_retries:
-                if retryc and sleep_on_retry_factor:
-                    sleep(retryc * sleep_on_retry_factor)
-                try:
-                    _result = depf(**kwa)
-                    break  # while
-                except Exception as e:
-                    if isinstance(e, RequestException):
-                        logger.warning(f"'{path_name}'{depf}{kwa} retry{retryc}\n{e.__class__.__name__}, {e}")
-                    else:
-                        logger.exception(f"'{path_name}'{depf}{kwa} retry{retryc}")
-                    retryc += 1
-            if _result is not None:
-                break  # wir wollen aus der depf loop damit komplett raus, deswegen erstmal break und dann danach nochmal check
-            else:
-                logger.warning(f"'{path_name}'{depf}{kwa} failed {max_retries+1} times, continuing with next if exists")
+        _namestr = f"'{datasource.name}'{call_args.callable}{call_args.kwargs}"
+        retryc = 0
+        while retryc <= call_args.retries:
+            if retryc and sleep_on_retry_factor:
+                sleep(retryc * sleep_on_retry_factor)
+            try:
+                _result = call_args.callable(**call_args.kwargs)
+                break
+            except Exception as e:
+                if isinstance(e, RequestException):
+                    logger.warning(f"{_namestr} retry{retryc}\n{e.__class__.__name__}, {e}")
+                else:
+                    logger.exception(f"{_namestr} retry{retryc}")
+                retryc += 1
         if _result is not None:
             return _result
-        else:
-            logger.warning(f"'{path_name}'{depf} failed all kwargs, continuing with next if exists")
+        logger.warning(f"{_namestr} failed {call_args.retries+1} times, continuing with next callable+kwargs if exists")
     return None
 
 
 def getdeps(
-        depfunctions: type_depfns,
+        datasources: List[DataSource],
         getdeps_timezone: timezone,
         getdeps_lines: int,
         getdeps_placelist: Optional[List[str]] = None,
         getdeps_mincountdown: int = -9,
-        getdeps_max_retries: int = 2,
-        getdeps_sleep_on_retry_factor: float = 0.5,
         extramsg_messageexists: Optional[bool] = None,
         extramsg_messagelines: int = 1,
         delaymsg_enable: bool = True,
@@ -586,18 +530,17 @@ def getdeps(
     data: type_data = {}
     nowtime = datetime.now(getdeps_timezone)
     with ThreadPoolExecutor() as tpe:
-        fs = {tpe.submit(_getdeps_depf_list, depf_list, path_name, getdeps_max_retries, getdeps_sleep_on_retry_factor): (path_name, end_all_on_fail)
-              for ((path_name, end_all_on_fail), depf_list) in depfunctions.items()}
+        fs = {tpe.submit(_getdeps_depf_list, _ds): _ds for _ds in datasources}
         for f in as_completed(fs):
             _result = f.result()
-            path_name, end_all_on_fail = fs[f]
+            datasource = fs[f]
             if _result is None:
-                logger.error(f"'{path_name}' failed, " + ("raising from getdeps now!" if end_all_on_fail else "going on ..."))
-                if end_all_on_fail:
+                logger.error(f"'{datasource.name}' failed, " + ("raising from getdeps now!" if datasource.critical else "going on ..."))
+                if datasource.critical:
                     raise GetdepsEndAll()
             else:
                 _result_deps, _result_msgs, _result_data = _result
-                # logger.success(path_name)
+                # logger.success(datasource.name)
                 deps.extend(_result_deps)
                 # for dep in _result_deps:
                 #     logger.success(f"{dep.deptime}\t{dep.linenum}\t{dep.direction}")
@@ -607,7 +550,7 @@ def getdeps(
                 data.update(_result_data)
                 # for _k, _v in _result_data.items():
                 #     logger.success(f"{_k}:\t{_v}")
-                logger.trace(f"'{path_name}' returned {len(_result_deps)} deps ({sum(dep.realtime for dep in _result_deps)} rt)"
+                logger.trace(f"'{datasource.name}' returned {len(_result_deps)} deps ({sum(dep.realtime for dep in _result_deps)} rt)"
                              + f", {len(_result_msgs)} msgs, {len(_result_data)} data items")
     extramsg_messageexists = bool(messages)
     # allg. Datenverschoenerung
@@ -638,6 +581,7 @@ def getdeps(
                                    nodepmsg_enable, nortmsg_limit))  # erweitert selber schon die dep.messages
     return sorteddeps, messages, data
 
+linenumpattern = re_compile('([a-zA-Z]+) *([0-9]+)')
 
 def _makemessages(sorteddeps: List[Departure], depline_count: int) -> bool:
     # Mehrfach vorkommende messages reduzieren, weiterhin doppelte vermeiden
