@@ -550,7 +550,8 @@ def getdeps(
                 data.update(_result_data)
                 # for _k, _v in _result_data.items():
                 #     logger.success(f"{_k}:\t{_v}")
-                logger.trace(f"'{datasource.name}' returned {len(_result_deps)} deps ({sum(dep.realtime for dep in _result_deps)} rt)"
+                logger.trace(f"'{datasource.name}' returned {len(_result_deps)} deps"
+                             + f" ({sum(dep.realtime for dep in _result_deps)} rt)" * bool(_result_deps)
                              + f", {len(_result_msgs)} msgs, {len(_result_data)} data items")
     extramsg_messageexists = bool(messages)
     # allg. Datenverschoenerung
