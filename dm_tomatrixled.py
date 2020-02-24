@@ -23,7 +23,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps
+from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed
 
 
 ### Logging
@@ -198,17 +198,20 @@ ppm_delay = Image.open(f"{ppmdir}icon-delay.ppm")
 ppm_earlyterm = Image.open(f"{ppmdir}icon-earlyterm.ppm")
 ppm_no_rt = Image.open(f"{ppmdir}icon-no-rt.ppm")
 ppm_no_deps = Image.open(f"{ppmdir}icon-no-deps.ppm")
+ppm_fhswf = Image.open(f"{ppmdir}icon-fhswf.ppm")
 
-meldungicons = {"info": ppm_info,
-                "warn": ppm_warn,
-                "stop": ppm_stop,
-                "smile": ppm_smile,
-                "ad": ppm_ad,
-                "delay": ppm_delay,
-                "earlyterm": ppm_earlyterm,
-                "nort": ppm_no_rt,
-                "nodeps": ppm_no_deps,
-                }
+meldungicons = {
+    "info": ppm_info,
+    "warn": ppm_warn,
+    "stop": ppm_stop,
+    "smile": ppm_smile,
+    "ad": ppm_ad,
+    "delay": ppm_delay,
+    "earlyterm": ppm_earlyterm,
+    "nort": ppm_no_rt,
+    "nodeps": ppm_no_deps,
+    "fhswf": ppm_fhswf,
+}
 
 symtextoffset = fonttext.height-fonttext.baseline
 
@@ -552,7 +555,7 @@ class Display:
         if ext_url:
             ds_ext = DataSource("ext-m+d", critical=False)
             ds_ext.to_call.append(CallableWithKwargs(getextmsgdata,
-                                                     {'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}, call_args_retries_main))
+                {'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}, call_args_retries_main))
             if save_msg_path:
                 ds_ext.to_call.append(CallableWithKwargs(getlocalmsg, {'save_msg_path': save_msg_path}, call_args_retries_local))
             self.datasources.append(ds_ext)
@@ -690,6 +693,32 @@ class HSTDisplay(LocalColorDisplay):
     def _get_color_dict():
         with open('./res/hstcolors.json', 'r') as hstcolorfile:
             return json_load(hstcolorfile)
+
+class FHSWFIserlohnDisplay(Display):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _rss_opt = {'timeout': 30, 'tz': tz, 'symbol': "fhswf"}
+
+        ds_fhswf_presse = DataSource("fhswf-rss-presse", critical=False)
+        _rss_opt_presse = {**_rss_opt,
+            'url': "https://vpis.fh-swf.de/rss.php/pressemitteilungen",
+            'limit_timedelta': timedelta(days=10),
+            'filter_categories': {'Studienort Iserlohn'},
+            'output_date': True
+        }
+        ds_fhswf_presse.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_presse, 1))
+        self.datasources.append(ds_fhswf_presse)
+
+        # termine-feed ist sehr langsam! kann man nur zum testen verwenden. daher auch timeout 30.
+        ds_fhswf_termine = DataSource("fhswf-rss-termine", critical=False)
+        _rss_opt_termine = {**_rss_opt,
+            'url': "https://vpis.fh-swf.de/rss.php/de/home/studierende/termine_aktuelles_1/index.php",
+            'limit': 3,
+            'filter_categories': {'Iserlohn : Veranstaltungen & Meldungen aus Iserlohn'}
+        }
+        ds_fhswf_termine.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_termine, 1))
+        self.datasources.append(ds_fhswf_termine)
+
 
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)

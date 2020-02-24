@@ -11,7 +11,7 @@ from requests import get
 from requests.exceptions import RequestException
 from subprocess import call
 from time import asctime, sleep
-from typing import Set, List, Dict, Callable, Union, Optional, Any, Tuple, Iterable
+from typing import Set, List, Dict, Callable, Union, Optional, Any, Tuple, Iterable, Collection
 import xml.etree.ElementTree as ET
 
 from loguru import logger
@@ -372,6 +372,28 @@ def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
         logger.debug(f"request data:\n{r.content}")
         raise
     return result
+
+
+def getrssfeed(url: str, timeout: Union[int, float], tz: timezone, symbol: str = "info",
+        limit: int = 0, limit_timedelta: timedelta = timedelta(),
+        filter_categories: Optional[Collection[str]] = None, output_date: bool = False) -> type_depmsgdata:
+    # bisher nicht implementiert: Ausgabe von description oder content:encoded
+    # (ist aber ohne weitere Verarbeitung oft ungeeignet für diese Darstellungsart)
+    messages: List[Meldung] = []
+    nowtime = datetime.now(tz)
+    r = get(url, timeout=timeout)
+    r.raise_for_status()
+    for item in ET.fromstring(r.content).iter('item'):
+        _pubDate = datetime.strptime(item.find('pubDate').text, "%a, %d %b %Y %H:%M:%S %z")
+        if limit_timedelta and nowtime - _pubDate > limit_timedelta:
+            continue
+        if filter_categories and not any(_c.text in filter_categories for _c in item.findall('category')):
+            continue
+        messages.append(Meldung(symbol=symbol,
+            text=item.find('title').text + output_date * _pubDate.strftime(" (%d.%m.%y)")))
+        if limit > 0 and len(messages) >= limit:
+            break
+    return [], messages, []
 
 
 def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[str] = None) -> type_depmsgdata:
