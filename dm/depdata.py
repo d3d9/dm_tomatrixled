@@ -374,6 +374,43 @@ def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
     return result
 
 
+def getkvbmonitor(STATION_ID: int, tz: timezone, limit: int = 0,
+        filter_directions: Optional[Collection[str]] = None) -> type_depmsgdata:
+    # https://github.com/timvonwerne/KVBMonitor
+    # https://github.com/KoelnAPI/kvb-api
+    url = "https://kvb.koeln/qr/%d/" % STATION_ID
+    HEADERS = {"user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.137 Safari/537.36"}
+    r = get(url, headers=HEADERS)
+    r.raise_for_status()
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(r.text, features="html.parser")
+    stand_time_hm = datetime.strptime(soup.find_all("span", class_="stand")[0].text.strip(), "Stand: %H:%M Uhr")
+    base_time = datetime.now(tz).replace(hour=stand_time_hm.hour, minute=stand_time_hm.minute, second=0, microsecond=0)
+    tables = soup.find_all("table", class_="display")
+    departures = []
+    for row in tables[0].find_all("tr"):
+        tds = row.find_all("td")
+        line_id = tds[0].text.replace(u"\xa0", "")
+        direction = tds[1].text.replace(u"\xa0", "")
+        if filter_directions and not direction in filter_directions:
+            continue
+        time = tds[2].text.replace(u"\xa0", " ").strip().lower()
+        time_min = 0 if time == "sofort" else int(time.split()[0])
+        deptime = base_time + timedelta(minutes=time_min)
+        departures.append(Departure(
+            linenum=line_id,
+            direction=direction,
+            direction_planned=direction,
+            deptime=deptime,
+            deptime_planned=deptime, # unbekannt
+            realtime=False, # kann man nicht wissen..?
+            disp_countdown=time_min
+        ))
+        if limit > 0 and len(messages) >= limit:
+            break
+    return departures, [], {}
+
+
 def getrssfeed(url: str, timeout: Union[int, float], tz: timezone, symbol: str = "info",
         limit: int = 0, limit_timedelta: timedelta = timedelta(),
         filter_categories: Optional[Collection[str]] = None, output_date: bool = False) -> type_depmsgdata:

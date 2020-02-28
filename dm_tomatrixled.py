@@ -23,7 +23,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed
+from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed, getkvbmonitor
 
 
 ### Logging
@@ -722,6 +722,25 @@ class FHSWFIserlohnDisplay(Display):
         ds_fhswf_termine.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_termine, 1))
         self.datasources.append(ds_fhswf_termine)
 
+class KVBDisplay(Display):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        countdownopt.use_disp_countdown = True # damit countdown der angezeigt wird verwendet wird und nicht der anhand der uhrzeit berechnete..
+
+        ds_kvb = DataSource("kvb")
+        ds_kvb.to_call.append(CallableWithKwargs(getkvbmonitor, {
+            "STATION_ID": 632,
+            "tz": tz,
+            "filter_directions": {"Rochusplatz", "Bocklemünd"}
+        }, 4))
+        self.datasources = [ds_kvb]
+
+    def render_header(self, canvas: FrameCanvas, r: int) -> int:
+        toptext = datetime.now().strftime("%A %d.%m.%Y %H:%M")
+        graphics.DrawText(canvas, self.font, 0, r, self.clockColor, toptext)
+        return self.after_stop_lineheight
+
 
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)
@@ -771,6 +790,7 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     meldung_scroller = MultisymbolScrollline(display_x_min, scrollx_msg_xmax, symtextoffset, fonttext, scrollColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
 
     displayclass = HSTDisplay if args.hst_colors else (BVGDisplay if args.bvg_id else Display)
+    # displayclass = KVBDisplay
     display = displayclass(
         pe=pe,
         x_min=display_x_min,
