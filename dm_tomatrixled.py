@@ -620,6 +620,15 @@ class Display:
 
         return False
 
+    def render_header(self, canvas: FrameCanvas, r: int) -> int:
+        self.stop_scroller.update(ppm_stop if stopsymbol else None, headername or (self.deps and self.deps[0].stopname) or "")
+        self.stop_scroller.render(canvas, r)
+
+        if self.clock_in_header:
+            graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
+
+        return self.after_stop_lineheight
+
     def render(self, canvas: FrameCanvas) -> None:
         if self.bgColor_t is not None:
             # TODO: nur innerhalb der Grenzen vom Display fillen
@@ -631,13 +640,7 @@ class Display:
         r = self.y_min + self.text_startr
 
         if self.header:
-            self.stop_scroller.update(ppm_stop if stopsymbol else None, headername or (self.deps and self.deps[0].stopname) or "")
-            self.stop_scroller.render(canvas, r)
-
-            if self.clock_in_header:
-                graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
-
-            r += self.after_stop_lineheight
+            r += self.render_header(canvas, r)
 
         _deprs = set()
         _deprs.add(r)
