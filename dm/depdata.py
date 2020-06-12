@@ -241,16 +241,19 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
     return result
 
 
-def getlocaldeps(local_dep_path: str, limit: int, tz: timezone, lookbehind_sec: int = 135) -> type_depmsgdata:
+def getlocaldeps(local_dep_path: str, limit: int, tz: timezone, lookbehind_sec: int = 135, lookahead_sec: int = 85500) -> type_depmsgdata:
     deps: List[Departure] = []
     logger.trace("getlocaldeps called")
     nowtime = datetime.now(tz)
     # in csv z. B. 2018-10-31;20:50:00;A.2;512;Hagen Stadtmitte/Volme Galerie
+    # muss sortiert sein, und ohne headerzeile.
     with open(local_dep_path, 'r', encoding='utf-8') as depf:
         for deprow in reader(depf, delimiter=';'):
             deptime = ptstrptime(deprow[0], deprow[1], tz)
             if deptime < (nowtime - timedelta(seconds=lookbehind_sec)):
                 continue
+            if deptime > (nowtime + timedelta(seconds=lookahead_sec)):
+                break
             arrtime = None
             deps.append(Departure(linenum=str(deprow[3]),
                                   direction=str(deprow[4]),
@@ -268,6 +271,9 @@ def getlocaldeps(local_dep_path: str, limit: int, tz: timezone, lookbehind_sec: 
                                   arrtime=arrtime,
                                   arrtime_planned=arrtime))
             if len(deps) >= limit: break
+        else:
+            if not deps:
+                raise Exception(f"end of csv data ({local_dep_path}) reached?")
     return deps, [], {}
 
 
