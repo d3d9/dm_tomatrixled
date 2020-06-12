@@ -80,9 +80,6 @@ def readefaxml(root: ET.Element, tz: timezone,
                content_for_short_titles: bool = True) -> type_depmsgdata:
     deps: List[Departure] = []
     stop_messages: List[Meldung] = []
-    # (itdStopInfoList bei Abfahrten bzw. infoLink bei itdOdvName)
-    # treten (alle?) auch bei einzelnen Abfahrten auf.. erstmal keine daten hierbei
-    # evtl. auslesen und schauen, was wirklich haltbezogen ist und nicht anderswo dabei ist
 
     _itdOdv = root.find('itdDepartureMonitorRequest').find('itdOdv')
     _itdOdvPlace = _itdOdv.find('itdOdvPlace')
@@ -95,6 +92,39 @@ def readefaxml(root: ET.Element, tz: timezone,
         return deps, stop_messages, {}
     _itdOdvNameElem = _itdOdvName.find('odvNameElem')
     stopname = _itdOdvNameElem.text or _itdOdvNameElem[0].tail or next((t.tail for t in _itdOdvNameElem if t is not None), None)
+
+    def readInfoLinks(node) -> List[str]:
+        messages: List[str] = []
+        for _infoLink in node.iter('infoLink'):
+            if ((ignore_infoTypes and _infoLink.findtext("./paramList/param[name='infoType']/value") in ignore_infoTypes)
+                    or (ignore_infoIDs and _infoLink.findtext("./paramList/param[name='infoID']/value") in ignore_infoIDs)):
+                continue
+            _iLTtext = _infoLink.findtext('infoLinkText')
+            if _iLTtext:
+                # kurze, inhaltslose (DB-)Meldungstitel
+                if content_for_short_titles and _iLTtext in {"Störung.", "Bauarbeiten.", "Information."}:
+                    _infoLink_infoText = _infoLink.find('infoText')
+                    if _infoLink_infoText is None: continue
+                    _iLiTcontent = _infoLink_infoText.findtext('content')
+                    if _iLiTcontent:
+                        messages.append(f"{_iLTtext[:-1]}: {_iLiTcontent}")
+                        continue
+                    # else: weiter, nächste Zeile
+                messages.append(_iLTtext)
+            else:
+                _infoLink_infoText = _infoLink.find('infoText')
+                if _infoLink_infoText is None: continue
+                _iLiTsubject = _infoLink_infoText.findtext('subject')
+                _iLiTsubtitle = _infoLink_infoText.findtext('subtitle')
+                _msg = ""
+                if _iLiTsubject: _msg += (_iLiTsubject + (" " if _iLiTsubject.endswith(":") else ": "))
+                if _iLiTsubtitle: _msg += _iLiTsubtitle
+                if _msg: messages.append(_msg)
+        return messages
+
+    # Haltestellenmeldungen
+    # sind auch bei einzelnen Abfahrten enthalten (itdStopInfoList), werden jetzt aber hier schon ausgelesen
+    stop_messages.extend(Meldung(symbol="info", text=msg, efa=True) for msg in readInfoLinks(_itdOdvName))
 
     for dep in root.iter('itdDeparture'):
         servingline = dep.find('itdServingLine')
@@ -148,31 +178,7 @@ def readefaxml(root: ET.Element, tz: timezone,
             itdrttimea = itdrtdatetime.find('itdTime').attrib
             deptime = datetime(int(itdrtdatea['year']), int(itdrtdatea['month']), int(itdrtdatea['day']), int(itdrttimea['hour']), int(itdrttimea['minute']), tzinfo=tz)
 
-        for _infoLink in dep.iter('infoLink'):
-            if ((ignore_infoTypes and _infoLink.findtext("./paramList/param[name='infoType']/value") in ignore_infoTypes)
-                    or (ignore_infoIDs and _infoLink.findtext("./paramList/param[name='infoID']/value") in ignore_infoIDs)):
-                continue
-            _iLTtext = _infoLink.findtext('infoLinkText')
-            if _iLTtext:
-                # kurze, inhaltslose (DB-)Meldungstitel
-                if content_for_short_titles and _iLTtext in {"Störung.", "Bauarbeiten.", "Information."}:
-                    _infoLink_infoText = _infoLink.find('infoText')
-                    if _infoLink_infoText is None: continue
-                    _iLiTcontent = _infoLink_infoText.findtext('content')
-                    if _iLiTcontent:
-                        messages.append(f"{_iLTtext[:-1]}: {_iLiTcontent}")
-                        continue
-                    # else: weiter, nächste Zeile
-                messages.append(_iLTtext)
-            else:
-                _infoLink_infoText = _infoLink.find('infoText')
-                if _infoLink_infoText is None: continue
-                _iLiTsubject = _infoLink_infoText.findtext('subject')
-                _iLiTsubtitle = _infoLink_infoText.findtext('subtitle')
-                _msg = ""
-                if _iLiTsubject: _msg += (_iLiTsubject + (" " if _iLiTsubject.endswith(":") else ": "))
-                if _iLiTsubtitle: _msg += _iLiTsubtitle
-                if _msg: messages.append(_msg)
+        messages.extend(msg for msg in readInfoLinks(dep) if msg not in (sm.text for sm in stop_messages))
 
         itdNoTrainText = servingline.findtext('itdNoTrain')
         if itdNoTrainText:
