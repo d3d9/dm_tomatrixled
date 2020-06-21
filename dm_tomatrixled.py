@@ -4,7 +4,7 @@ from __future__ import annotations
 from argparse import ArgumentParser
 from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass, fields
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal, ROUND_HALF_UP
 from requests import get
 from itertools import cycle
@@ -583,7 +583,7 @@ class Display:
                 delaymsg_mindelay=delaymsg_mindelay,
                 etermmsg_enable=etermmsg_enable,
                 etermmsg_only_visible=etermmsg_only_visible,
-                nodepmsg_enable=True,
+                nodepmsg_enable=False,
                 nortmsg_limit=nortmsg_limit)
 
         if not self.joined and self.pe_f.done():
@@ -709,6 +709,52 @@ class FeuerwacheDisplay(HSTDisplay):
             dep.platformno = _larr
         else:
             dep.platformno = ""
+
+    def render(self, canvas: FrameCanvas) -> None:
+        # kopiert aus Display. angepasst temporaer wegen Umleitungstext und keinen Abfahrten.
+
+        if self.bgColor_t is not None:
+            # TODO: nur innerhalb der Grenzen vom Display fillen
+            canvas.Fill(*self.bgColor_t)
+
+        blinkstep = self.i % 40 < 20
+        blinkon = blinkstep or not blink
+        dep_lineheights = self.dep_lineheight_gen(self)
+        r = self.y_min + self.text_startr
+
+        if self.header:
+            r += self.render_header(canvas, r)
+
+        # if False:
+        if self.deps:
+            _deprs = set()
+            _deprs.add(r)
+            for _dli, _depline in enumerate(self.deplines):
+                _depline.render(canvas, r, blinkon)
+                if _dli < self.depsvisible - 1:
+                    r += next(dep_lineheights)
+                    _deprs.add(r)
+                else:
+                    r = max(_deprs) + self.after_dep_lineheight
+                    break
+        # elif date(2020, 6, 21) <= datetime.now().date():
+        elif date(2020, 6, 22) <= datetime.now().date():
+            texts = ('Aufgrund von Bauarbeiten', 'zurzeit kein Busverkehr!', '- Sperrung der Lange Str. -') if self.i % 300 < 150 else ('- Umleitungsstrecken -', '514: Wehringhauser Str., VHS', '521: Bachstr., Allg. Krankenh.')
+            for t in texts:
+                tpx = textpx(fontnormal, t)
+                graphics.DrawText(canvas, fontnormal, (canvas.width - tpx) // 2, r, textColor, t)
+                r += args.line_height
+
+        if self.meldungvisible:
+            self.meldung_scroller.render(canvas, r)
+            r += self.after_meldung_lineheight
+
+        if progress:
+            x_pixels = self.x_max - self.x_min + 1
+            x_progress = int(x_pixels-1 - ((self.i % self.step)*((x_pixels-1)/self.step)))
+            graphics.DrawLine(canvas, self.x_min, self.y_max, self.x_min+x_progress, self.y_max, self.progressColor)
+
+        self.i += 1
 
 class FHSWFIserlohnDisplay(Display):
     def __init__(self, *args, **kwargs):
