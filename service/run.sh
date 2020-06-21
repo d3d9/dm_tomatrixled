@@ -29,6 +29,9 @@ fi
 
 echo "selection: $selection"
 case $selection in
+feuerwache)
+  ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --ignore-infoid 65050_HST --test-ext https://d3d9.xyz:8008/data?id=feuerwache --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" # --no-rt-msg -1
+  ;;
 emilienplatz)
   ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST
   ;;

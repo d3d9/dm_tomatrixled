@@ -346,7 +346,8 @@ tz = datetime.utcnow().astimezone().tzinfo
 maxkwaretries = 4
 
 efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
-efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
+efaserver_backup = 'https://efa.vrr.de/vrr/XML_DM_REQUEST'
+#efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
 
 ext_url = args.test_ext
 save_msg_path = args.save_msg_path
@@ -703,6 +704,18 @@ class HSTDisplay(LocalColorDisplay):
         with open('./res/hstcolors.json', 'r') as hstcolorfile:
             return json_load(hstcolorfile)
 
+class FeuerwacheDisplay(HSTDisplay):
+    def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
+        super().additional_update(nowtime, di, dep)
+        _larr, _rarr = "\u21e6", "\u21e8"
+         #_larr, _rarr = "\u27f5", "\u27f6"
+        if dep.platformno == "1":
+            dep.platformno = _rarr
+        elif dep.platformno == "2":
+            dep.platformno = _larr
+        else:
+            dep.platformno = ""
+
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)
     x_min = 0
@@ -751,6 +764,7 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     meldung_scroller = MultisymbolScrollline(display_x_min, scrollx_msg_xmax, symtextoffset, fonttext, scrollColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)
 
     displayclass = HSTDisplay if args.hst_colors else (BVGDisplay if args.bvg_id else Display)
+    displayclass = FeuerwacheDisplay
     display = displayclass(
         pe=pe,
         x_min=display_x_min,
