@@ -23,7 +23,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, type_depfnlist, type_depfns, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps
+from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed, getkvbmonitor
 
 
 ### Logging
@@ -38,9 +38,9 @@ if datafilelog:
 ### Arguments
 
 parser = ArgumentParser()
-parser.add_argument("-s", "--stop-ifopt", action="store", help="IFOPT reference of stop or area or platform. Default: de:05914:2114:0:1", default="de:05914:2114:0:1", type=str)
-parser.add_argument("--ibnr", action="store", help="IBNR. With this set, there will be train data only from DB and others only from EFA. (temporary parameter)", default="", type=str)
-parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary parameter)", default="", type=str)
+parser.add_argument("-s", "--stop-ifopt", action="store", help="IFOPT reference of stop or area or platform, will be used with EFA.", default="", type=str)
+parser.add_argument("--ibnr", action="store", help="IBNR. If ifopt is also set, there will be train data only from DB and others only from EFA. (temporary parameter)", default="", type=str)
+parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary parameter; no combination with ibnr/ifopt.)", default="", type=str)
 parser.add_argument("--bvg-direction", action="store", help="BVG departures in direction (temporary parameter)", default="", type=str)
 parser.add_argument("--hst-colors", action="store_true", help="Use HST (Hagen) Netz 2020 colors (temporary parameter)")
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
@@ -198,17 +198,20 @@ ppm_delay = Image.open(f"{ppmdir}icon-delay.ppm")
 ppm_earlyterm = Image.open(f"{ppmdir}icon-earlyterm.ppm")
 ppm_no_rt = Image.open(f"{ppmdir}icon-no-rt.ppm")
 ppm_no_deps = Image.open(f"{ppmdir}icon-no-deps.ppm")
+ppm_fhswf = Image.open(f"{ppmdir}icon-fhswf.ppm")
 
-meldungicons = {"info": ppm_info,
-                "warn": ppm_warn,
-                "stop": ppm_stop,
-                "smile": ppm_smile,
-                "ad": ppm_ad,
-                "delay": ppm_delay,
-                "earlyterm": ppm_earlyterm,
-                "nort": ppm_no_rt,
-                "nodeps": ppm_no_deps,
-                }
+meldungicons = {
+    "info": ppm_info,
+    "warn": ppm_warn,
+    "stop": ppm_stop,
+    "smile": ppm_smile,
+    "ad": ppm_ad,
+    "delay": ppm_delay,
+    "earlyterm": ppm_earlyterm,
+    "nort": ppm_no_rt,
+    "nodeps": ppm_no_deps,
+    "fhswf": ppm_fhswf,
+}
 
 symtextoffset = fonttext.height-fonttext.baseline
 
@@ -294,7 +297,7 @@ platformopt = PlatformOptions(
 
 placelist = args.place_strings
 if not placelist:
-    placelist = ["Hagen ", "HA-"]
+    placelist = [", Hagen (Westf)", "Hagen ", "HA-"]
 ifopt = args.stop_ifopt
 efamenabled = args.enable_efamessages
 headername = args.stop_name
@@ -343,7 +346,10 @@ countdownlowerlimit = -9
 min_timeout = 10
 servertimeout = max(min_timeout, (args.sleep_interval*args.update_steps)/2)
 tz = datetime.utcnow().astimezone().tzinfo
-maxkwaretries = 4
+
+call_args_retries_main = 4
+call_args_retries_backup = 1
+call_args_retries_local = 0
 
 efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 efaserver_backup = 'https://efa.vrr.de/vrr/XML_DM_REQUEST'
@@ -382,6 +388,9 @@ etermmsg_only_visible = True
 nortmsg_limit = args.no_rt_msg
 
 ### End of configuration
+
+class NoDatasourceException(Exception):
+    pass
 
 class Display:
     def __init__(
@@ -455,119 +464,102 @@ class Display:
         self.const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
         self.meldungs: List[Meldung] = self.const_meldungs.copy()
 
-        # "volles" Beispiel in dm_depdata.py
-        depfun_efa: type_depfns = {
-            ("efa-main", True): [(getefadeps, [{'serverurl': efaserver,
-                                                'timeout': servertimeout,
-                                                'ifopt': ifopt,
-                                                'limit': self.limit*args.limit_multiplier,
-                                                'tz': tz,
-                                                'ignore_infoTypes': ignore_infoTypes,
-                                                'ignore_infoIDs': ignore_infoIDs,
-                                                'content_for_short_titles': content_for_short_titles,
-                                               },
-                                               {'serverurl': efaserver_backup,
-                                                'timeout': servertimeout,
-                                                'ifopt': ifopt,
-                                                'limit': self.limit*args.limit_multiplier,
-                                                'tz': tz,
-                                                'ignore_infoTypes': ignore_infoTypes,
-                                                'ignore_infoIDs': ignore_infoIDs,
-                                                'content_for_short_titles': content_for_short_titles,
-                                               },
-                                              ])
-                                ],
-            }
+        self.datasources: List[DataSource] = []
+
+        ds_efa = DataSource("efa-main")
+        _efa_args = {
+            'serverurl': efaserver,
+            'timeout': servertimeout,
+            'ifopt': ifopt,
+            'limit': self.limit*args.limit_multiplier,
+            'tz': tz,
+            'ignore_infoTypes': ignore_infoTypes,
+            'ignore_infoIDs': ignore_infoIDs,
+            'content_for_short_titles': content_for_short_titles
+        }
+        ds_efa.to_call.append(CallableWithKwargs(getefadeps, _efa_args, call_args_retries_main))
+
+        _efa_args_backup = _efa_args.copy()
+        _efa_args_backup['serverurl'] = efaserver_backup
+        ds_efa.to_call.append(CallableWithKwargs(getefadeps, _efa_args_backup, call_args_retries_backup))
+
         if local_deps:
-            depfun_efa[("efa-main", True)].append((getlocaldeps, [{'local_dep_path': local_deps, 'limit': self.limit, 'tz': tz}]))
+            ds_efa.to_call.append(CallableWithKwargs(getlocaldeps, {'local_dep_path': local_deps, 'limit': self.limit, 'tz': tz}, call_args_retries_local))
+            # erstmal nur bei ds_efa local_deps eingebunden.
 
-        depfun_bvg: type_depfns = {
-            ("bvg-main", True): [(getfptfrestdeps, [{'serverurl': bvgrestserver,
-                                                     'timeout': servertimeout,
-                                                     'station_id': bvgrestid,
-                                                     'limit': self.limit*args.limit_multiplier,
-                                                     'direction': bvgdirectionid,
-                                                     'duration': 90,
-                                                     'exclRemarkTypes': bvgexclremarktypes,
-                                                    },
-                                                    {'serverurl': bvgrestserver_backup,
-                                                     'timeout': servertimeout,
-                                                     'station_id': bvgrestid,
-                                                     'limit': self.limit*args.limit_multiplier,
-                                                     'direction': bvgdirectionid,
-                                                     'duration': 90,
-                                                     'exclRemarkTypes': bvgexclremarktypes,
-                                                    },
-                                                   ])
-                                ],
-            }
+        ds_efa_notrains = DataSource("efa-notr")
+        _efa_notrains_args = _efa_args.copy()
+        _efa_notrains_args_backup = _efa_args_backup.copy()
+        _efa_notrains_args['exclMOT'] = trainTMOTefa
+        _efa_notrains_args_backup['exclMOT'] = trainTMOTefa
+        ds_efa_notrains.to_call.append(CallableWithKwargs(getefadeps, _efa_notrains_args, call_args_retries_main))
+        ds_efa_notrains.to_call.append(CallableWithKwargs(getefadeps, _efa_notrains_args_backup, call_args_retries_backup))
 
-        depfun_efadb: type_depfns = {
-            ("efa-notr", True): [(getefadeps, [{'serverurl': efaserver,
-                                                'timeout': servertimeout,
-                                                'ifopt': ifopt,
-                                                'limit': self.limit*args.limit_multiplier,
-                                                'tz': tz,
-                                                'exclMOT': trainTMOTefa,
-                                                'ignore_infoTypes': ignore_infoTypes,
-                                                'ignore_infoIDs': ignore_infoIDs,
-                                                'content_for_short_titles': content_for_short_titles,
-                                               },
-                                               {'serverurl': efaserver_backup,
-                                                'timeout': servertimeout,
-                                                'ifopt': ifopt,
-                                                'limit': self.limit*args.limit_multiplier,
-                                                'tz': tz,
-                                                'exclMOT': trainTMOTefa,
-                                                'ignore_infoTypes': ignore_infoTypes,
-                                                'ignore_infoIDs': ignore_infoIDs,
-                                                'content_for_short_titles': content_for_short_titles,
-                                               },
-                                              ])
-                                ],
-            ("dbre-tr", True): [(getfptfrestdeps, [{'serverurl': dbrestserver,
-                                                    'timeout': servertimeout,
-                                                    'station_id': dbrestibnr,
-                                                    'limit': self.limit*args.limit_multiplier,
-                                                    'inclMOT': trainMOT,
-                                                   },
-                                                   {'serverurl': dbrestserver_backup,
-                                                    'timeout': servertimeout,
-                                                    'station_id': dbrestibnr,
-                                                    'limit': self.limit*args.limit_multiplier,
-                                                    'inclMOT': trainMOT,
-                                                   }
-                                                  ]),
-                                (getefadeps, [{'serverurl': efaserver,
-                                               'timeout': servertimeout,
-                                               'ifopt': ifopt,
-                                               'limit': self.limit*args.limit_multiplier,
-                                               'tz': tz,
-                                               'inclMOT': trainTMOTefa,
-                                               'ignore_infoTypes': ignore_infoTypes,
-                                               'ignore_infoIDs': ignore_infoIDs,
-                                               'content_for_short_titles': content_for_short_titles,
-                                              },
-                                              {'serverurl': efaserver_backup,
-                                               'timeout': servertimeout,
-                                               'ifopt': ifopt,
-                                               'limit': self.limit*args.limit_multiplier,
-                                               'tz': tz,
-                                               'inclMOT': trainTMOTefa,
-                                               'ignore_infoTypes': ignore_infoTypes,
-                                               'ignore_infoIDs': ignore_infoIDs,
-                                               'content_for_short_titles': content_for_short_titles,
-                                              }
-                                             ])
-                               ],
-            }
+        ds_bvg = DataSource("bvg-main")
+        _bvg_args = {
+            'serverurl': bvgrestserver,
+            'timeout': servertimeout,
+            'station_id': bvgrestid,
+            'limit': self.limit*args.limit_multiplier,
+            'direction': bvgdirectionid,
+            'duration': 90,
+            'exclRemarkTypes': bvgexclremarktypes
+        }
+        ds_bvg.to_call.append(CallableWithKwargs(getfptfrestdeps, _bvg_args, call_args_retries_main))
 
-        self.depfunctions = (depfun_efadb if dbrestibnr else depfun_efa) if not bvgrestid else depfun_bvg
+        _bvg_args_backup = _bvg_args.copy()
+        _bvg_args_backup['serverurl'] = bvgrestserver_backup
+        ds_bvg.to_call.append(CallableWithKwargs(getfptfrestdeps, _bvg_args_backup, call_args_retries_backup))
+
+        ds_db = DataSource("dbrest-main")
+        _db_args = {
+            'serverurl': dbrestserver,
+            'timeout': servertimeout,
+            'station_id': dbrestibnr,
+            'limit': self.limit*args.limit_multiplier
+        }
+        ds_db.to_call.append(CallableWithKwargs(getfptfrestdeps, _db_args, call_args_retries_main))
+
+        _db_args_backup = _db_args.copy()
+        _db_args_backup['serverurl'] = dbrestserver_backup
+        ds_db.to_call.append(CallableWithKwargs(getfptfrestdeps, _db_args_backup, call_args_retries_backup))
+
+        ds_db_trainsonly = DataSource("dbrest-tr")
+        _db_trainsonly_args = _db_args.copy()
+        _db_trainsonly_args_backup = _db_args_backup.copy()
+        _db_trainsonly_args['inclMOT'] = trainMOT
+        _db_trainsonly_args_backup['inclMOT'] = trainMOT
+        ds_db_trainsonly.to_call.append(CallableWithKwargs(getfptfrestdeps, _db_trainsonly_args, call_args_retries_main))
+        ds_db_trainsonly.to_call.append(CallableWithKwargs(getfptfrestdeps, _db_trainsonly_args_backup, call_args_retries_backup))
+
+        _db_trainsonly_efabackup_args = _efa_args.copy()
+        _db_trainsonly_efabackup_args_backup = _efa_args_backup.copy()
+        _db_trainsonly_efabackup_args['inclMOT'] = trainTMOTefa
+        _db_trainsonly_efabackup_args_backup['inclMOT'] = trainTMOTefa
+        ds_db_trainsonly.to_call.append(CallableWithKwargs(getefadeps, _db_trainsonly_efabackup_args, 1 + call_args_retries_backup))
+        ds_db_trainsonly.to_call.append(CallableWithKwargs(getefadeps, _db_trainsonly_efabackup_args_backup, call_args_retries_backup))
+
+        if bvgrestid:
+            self.datasources.append(ds_bvg)
+        elif ifopt:
+            if dbrestibnr:
+                self.datasources.append(ds_efa_notrains)
+                self.datasources.append(ds_db_trainsonly)
+            else:
+                self.datasources.append(ds_efa)
+        elif dbrestibnr:
+            self.datasources.append(ds_db)
+        else:
+            # ggf. lokal only erlauben
+            raise NoDatasourceException("no ifopt, dbrestibnr or bvgrestid..")
+
         if ext_url:
-            depfnlist_ext: type_depfnlist = [(getextmsgdata, [{'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}])]
+            ds_ext = DataSource("ext-m+d", critical=False)
+            ds_ext.to_call.append(CallableWithKwargs(getextmsgdata,
+                {'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}, call_args_retries_main))
             if save_msg_path:
-                depfnlist_ext.append((getlocalmsg, [{'save_msg_path': save_msg_path}]))
-            self.depfunctions.update({('ext-m+d', False): depfnlist_ext})
+                ds_ext.to_call.append(CallableWithKwargs(getlocalmsg, {'save_msg_path': save_msg_path}, call_args_retries_local))
+            self.datasources.append(ds_ext)
 
         self.pe_f = None
         self.joined = True
@@ -580,12 +572,11 @@ class Display:
             self.joined = False
             self.pe_f = self.pe.submit(
                 getdeps,
-                depfunctions=self.depfunctions,
+                datasources=self.datasources,
                 getdeps_timezone=tz,
                 getdeps_lines=self.limit,
                 getdeps_placelist=placelist,
                 getdeps_mincountdown=countdownlowerlimit,
-                getdeps_max_retries=maxkwaretries,
                 extramsg_messageexists=bool(self.const_meldungs),
                 extramsg_messagelines = self.meldung_hiddendeps,
                 delaymsg_enable=delaymsg_enable,
@@ -630,6 +621,15 @@ class Display:
 
         return False
 
+    def render_header(self, canvas: FrameCanvas, r: int) -> int:
+        self.stop_scroller.update(ppm_stop if stopsymbol else None, headername or (self.deps and self.deps[0].stopname) or "")
+        self.stop_scroller.render(canvas, r)
+
+        if self.clock_in_header:
+            graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
+
+        return self.after_stop_lineheight
+
     def render(self, canvas: FrameCanvas) -> None:
         if self.bgColor_t is not None:
             # TODO: nur innerhalb der Grenzen vom Display fillen
@@ -641,13 +641,7 @@ class Display:
         r = self.y_min + self.text_startr
 
         if self.header:
-            self.stop_scroller.update(ppm_stop if stopsymbol else None, headername or (self.deps and self.deps[0].stopname) or "")
-            self.stop_scroller.render(canvas, r)
-
-            if self.clock_in_header:
-                graphics.DrawText(canvas, self.font, self.stop_scroller.rx+1+header_spacest, r, self.clockColor, clockstr_tt(localtime()))
-
-            r += self.after_stop_lineheight
+            r += self.render_header(canvas, r)
 
         _deprs = set()
         _deprs.add(r)
@@ -715,6 +709,51 @@ class FeuerwacheDisplay(HSTDisplay):
             dep.platformno = _larr
         else:
             dep.platformno = ""
+
+class FHSWFIserlohnDisplay(Display):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _rss_opt = {'timeout': 30, 'tz': tz, 'symbol': "fhswf"}
+
+        ds_fhswf_presse = DataSource("fhswf-rss-presse", critical=False)
+        _rss_opt_presse = {**_rss_opt,
+            'url': "https://vpis.fh-swf.de/rss.php/pressemitteilungen",
+            'limit_timedelta': timedelta(days=10),
+            'filter_categories': {'Studienort Iserlohn'},
+            'output_date': True
+        }
+        ds_fhswf_presse.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_presse, 1))
+        self.datasources.append(ds_fhswf_presse)
+
+        # termine-feed ist sehr langsam! kann man nur zum testen verwenden. daher auch timeout 30.
+        ds_fhswf_termine = DataSource("fhswf-rss-termine", critical=False)
+        _rss_opt_termine = {**_rss_opt,
+            'url': "https://vpis.fh-swf.de/rss.php/de/home/studierende/termine_aktuelles_1/index.php",
+            'limit': 3,
+            'filter_categories': {'Iserlohn : Veranstaltungen & Meldungen aus Iserlohn'}
+        }
+        ds_fhswf_termine.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_termine, 1))
+        self.datasources.append(ds_fhswf_termine)
+
+class KVBDisplay(Display):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        countdownopt.use_disp_countdown = True # damit countdown der angezeigt wird verwendet wird und nicht der anhand der uhrzeit berechnete..
+
+        ds_kvb = DataSource("kvb")
+        ds_kvb.to_call.append(CallableWithKwargs(getkvbmonitor, {
+            "STATION_ID": 632,
+            "tz": tz,
+            "filter_directions": {"Rochusplatz", "Bocklemünd"}
+        }, 4))
+        self.datasources = [ds_kvb]
+
+    def render_header(self, canvas: FrameCanvas, r: int) -> int:
+        toptext = datetime.now().strftime("%A %d.%m.%Y %H:%M")
+        graphics.DrawText(canvas, self.font, 0, r, self.clockColor, toptext)
+        return self.after_stop_lineheight
+
 
 def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
     canvas = matrix.CreateFrameCanvas(writeppm)
@@ -789,7 +828,7 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
         meldung_scroller=meldung_scroller,
         after_meldung_lineheight=args.line_height)
 
-    logger.info(f"started loop with depfunctions {', '.join(x[0] for x in display.depfunctions.keys())}")
+    logger.info(f"started loop with data sources {', '.join(_ds.name for _ds in display.datasources)}")
     while True:
         # time_measure = monotonic()
         canvas.Clear()
@@ -834,6 +873,9 @@ if __name__ == "__main__":
             with ProcessPoolExecutor(max_workers=1) as ppe:
                 loop(matrix, ppe, args.sleep_interval)
         except KeyboardInterrupt:
+            break
+        except NoDatasourceException as nde:
+            logger.exception(nde)
             break
         except Exception:
             logger.opt(exception=True).critical("exception in loop or module")
