@@ -351,8 +351,10 @@ call_args_retries_main = 4
 call_args_retries_backup = 1
 call_args_retries_local = 0
 
-efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
-efaserver_backup = 'https://efa.vrr.de/vrr/XML_DM_REQUEST'
+#efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
+#efaserver_backup = 'https://efa.vrr.de/vrr/XML_DM_REQUEST'
+efaserver = 'https://efa.vrr.de/vrr/XML_DM_REQUEST'
+efaserver_backup = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 #efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
 
 ext_url = args.test_ext
