@@ -100,10 +100,20 @@ def readefaxml(root: ET.Element, tz: timezone,
                     or (ignore_infoIDs and _infoLink.findtext("./paramList/param[name='infoID']/value") in ignore_infoIDs)):
                 continue
             _iLTtext = _infoLink.findtext('infoLinkText')
+            _infoLink_infoText = _infoLink.find('infoText')
+
+            # smsText shortcut
+            if _infoLink_infoText is not None:
+                _oCT = _infoLink_infoText.find('outputClientText')
+                if _oCT is not None:
+                    _smsText = _oCT.findtext('smsText')
+                    if _smsText.strip():
+                        messages.append(_smsText)
+                        continue # done
+
             if _iLTtext:
                 # kurze, inhaltslose (DB-)Meldungstitel
                 if content_for_short_titles and _iLTtext in {"Störung.", "Bauarbeiten.", "Information."}:
-                    _infoLink_infoText = _infoLink.find('infoText')
                     if _infoLink_infoText is None: continue
                     _iLiTcontent = _infoLink_infoText.findtext('content')
                     if _iLiTcontent:
@@ -112,7 +122,6 @@ def readefaxml(root: ET.Element, tz: timezone,
                     # else: weiter, nächste Zeile
                 messages.append(_iLTtext)
             else:
-                _infoLink_infoText = _infoLink.find('infoText')
                 if _infoLink_infoText is None: continue
                 _iLiTsubject = _infoLink_infoText.findtext('subject')
                 _iLiTsubtitle = _infoLink_infoText.findtext('subtitle')
