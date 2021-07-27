@@ -398,7 +398,12 @@ delaymsg_enable = True
 delaymsg_mindelay = 2
 etermmsg_enable = True
 etermmsg_only_visible = True
+nodepmsg_enable = True
 nortmsg_limit = args.no_rt_msg
+
+nina_msg_priority = 1000
+delaymsg_priority = etermmsg_priority = nodepmsg_priority = nortmsg_priority = 500
+msg_priority_default = 0
 
 ### End of configuration
 
@@ -488,7 +493,8 @@ class Display:
             'tz': tz,
             'ignore_infoTypes': ignore_infoTypes,
             'ignore_infoIDs': ignore_infoIDs,
-            'content_for_short_titles': content_for_short_titles
+            'content_for_short_titles': content_for_short_titles,
+            'message_priority': None # ...
         }
         ds_efa.to_call.append(CallableWithKwargs(getefadeps, _efa_args, call_args_retries_main))
 
@@ -516,7 +522,8 @@ class Display:
             'limit': self.limit*args.limit_multiplier,
             'direction': bvgdirectionid,
             'duration': 90,
-            'exclRemarkTypes': bvgexclremarktypes
+            'exclRemarkTypes': bvgexclremarktypes,
+            'message_priority': None # ...
         }
         ds_bvg.to_call.append(CallableWithKwargs(getfptfrestdeps, _bvg_args, call_args_retries_main))
 
@@ -529,7 +536,8 @@ class Display:
             'serverurl': dbrestserver,
             'timeout': servertimeout,
             'station_id': dbrestibnr,
-            'limit': self.limit*args.limit_multiplier
+            'limit': self.limit*args.limit_multiplier,
+            'message_priority': None # ...
         }
         ds_db.to_call.append(CallableWithKwargs(getfptfrestdeps, _db_args, call_args_retries_main))
 
@@ -575,7 +583,7 @@ class Display:
             self.datasources.append(ds_ext)
 
         if nina_url:
-            _nina_opt = {'url': nina_url, 'timeout': 10, 'tz': tz, 'symbol': "warn"}
+            _nina_opt = {'url': nina_url, 'timeout': 10, 'tz': tz, 'symbol': "warn", 'message_priority': nina_msg_priority}
             if nina_ignore_msgType: _nina_opt['ignore_msgType'] = nina_ignore_msgType
             if nina_ignore_severity: _nina_opt['ignore_severity'] = nina_ignore_severity
             if nina_ignore_id: _nina_opt['ignore_id'] = nina_ignore_id
@@ -607,10 +615,14 @@ class Display:
                 extramsg_messagelines = self.meldung_hiddendeps,
                 delaymsg_enable=delaymsg_enable,
                 delaymsg_mindelay=delaymsg_mindelay,
+                delaymsg_priority=delaymsg_priority,
                 etermmsg_enable=etermmsg_enable,
                 etermmsg_only_visible=etermmsg_only_visible,
-                nodepmsg_enable=True,
-                nortmsg_limit=nortmsg_limit)
+                etermmsg_priority=etermmsg_priority,
+                nodepmsg_enable=nodepmsg_enable,
+                nodepmsg_priority=nodepmsg_priority,
+                nortmsg_limit=nortmsg_limit,
+                nortmsg_priority=nortmsg_priority)
 
         if not self.joined and self.pe_f.done():
             try:
@@ -641,6 +653,8 @@ class Display:
                     if _dli < self.depsvisible:
                         _depline.lx, _depline.rx = self.depcolumns[self.columnaccessfn(_dli, self)]
                         _depline.setminmax()
+                # new: order messages by priority
+                self.meldungs.sort(key=lambda x: (x.priority or msg_priority_default), reverse=True)
                 if self.meldung_scroller is not None:
                     self.meldung_scroller.update(self.meldungs)
                 return True
@@ -727,7 +741,7 @@ class HSTDisplay(LocalColorDisplay):
 class FHSWFIserlohnDisplay(Display):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        _rss_opt = {'timeout': 30, 'tz': tz, 'symbol': "fhswf"}
+        _rss_opt = {'timeout': 30, 'tz': tz, 'symbol': "fhswf", 'message_priority': None}
 
         ds_fhswf_presse = DataSource("fhswf-rss-presse", critical=False)
         _rss_opt_presse = {**_rss_opt,
