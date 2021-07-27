@@ -467,7 +467,7 @@ def _nina_out_time(dt: datetime, format: str, format_onlydate: str, tz: timezone
     return dt.strftime(format).replace(_today.strftime(format_onlydate), "Heute") if dt.date() == _today else dt.strftime(format)
 
 def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol: str = "warn",
-        limit: int = 0, limit_timedelta: timedelta = timedelta(), message_priority: Optional[int] = None,
+        limit: int = 0, message_priority: Optional[int] = None,
         ignore_msgType: Optional[Collection[str]] = None,
         ignore_severity: Optional[Collection[str]] = None,
         ignore_id: Optional[Collection[str]] = None) -> type_depmsgdata:
