@@ -622,13 +622,22 @@ class CallableWithKwargs:
 class DataSource:
     name: str
     critical: bool = True
-    to_call: List[CallableWithKwargs] = field(default_factory=list)
+    # skip: after loading the value, it is reused from cache for the specified number of times
+    # example: if new data gets loaded every 10 seconds and skip is 5, it will be freshly loaded once a minute
+    skip: Optional[int] = None
+    to_call: List[CallableWithKwargs] = field(default_factory=list, hash=False)
+    _skip_cache: Optional[type_depmsgdata] = field(default=None, init=False, compare=False, hash=False)
+    _skip_remaining: Optional[int] = field(default=None, init=False, compare=False, hash=False)
 
 class GetdepsEndAll(Exception):
     pass
 
+type_skip_dict = Dict[str, type_depmsgdata]
+type_depmsgdata_aug = Tuple[List[Departure], List[Meldung], type_data, type_skip_dict]
 
 def _getdeps_depf_list(datasource: DataSource, sleep_on_retry_factor: float = 0.5) -> Optional[type_depmsgdata]:
+    if datasource.skip and datasource._skip_cache:
+        return datasource._skip_cache
     for call_args in datasource.to_call:
         _result = None
         _namestr = f"'{datasource.name}'{call_args.callable}{call_args.kwargs}"
@@ -669,10 +678,11 @@ def getdeps(
         nodepmsg_priority: Optional[int] = None,
         nortmsg_limit: Optional[int] = 20,
         nortmsg_priority: Optional[int] = None
-        ) -> type_depmsgdata:
+        ) -> type_depmsgdata_aug:
     deps: List[Departure] = []
     messages: List[Meldung] = []
     data: type_data = {}
+    skip_dict: type_skip_dict = {}
     nowtime = datetime.now(getdeps_timezone)
     with ThreadPoolExecutor() as tpe:
         fs = {tpe.submit(_getdeps_depf_list, _ds): _ds for _ds in datasources}
@@ -685,6 +695,8 @@ def getdeps(
                     raise GetdepsEndAll()
             else:
                 _result_deps, _result_msgs, _result_data = _result
+                if datasource.skip: # and datasource._skip_cache is None:
+                    skip_dict[datasource.name] = _result
                 # logger.success(datasource.name)
                 deps.extend(_result_deps)
                 # for dep in _result_deps:
@@ -695,7 +707,8 @@ def getdeps(
                 data.update(_result_data)
                 # for _k, _v in _result_data.items():
                 #     logger.success(f"{_k}:\t{_v}")
-                logger.trace(f"'{datasource.name}' returned {len(_result_deps)} deps"
+                # CACHED: condition like in _getdeps_depf_list
+                logger.trace(f"'{datasource.name}'{' (CACHED)' if datasource.skip and datasource._skip_cache else ''} returned {len(_result_deps)} deps"
                              + f" ({sum(dep.realtime for dep in _result_deps)} rt)" * bool(_result_deps)
                              + f", {len(_result_msgs)} msgs, {len(_result_data)} data items")
     extramsg_messageexists = bool(messages)
@@ -726,7 +739,7 @@ def getdeps(
                                    etermmsg_enable=etermmsg_enable, etermmsg_only_visible=etermmsg_only_visible, etermmsg_priority=etermmsg_priority,
                                    nodepmsg_enable=nodepmsg_enable, nodepmsg_priority=nodepmsg_priority,
                                    nortmsg_limit=nortmsg_limit, nortmsg_priority=nortmsg_priority))  # erweitert selber schon die dep.messages
-    return sorteddeps, messages, data
+    return sorteddeps, messages, data, skip_dict
 
 linenumpattern = re_compile('([a-zA-Z]+) *([0-9]+)')
 

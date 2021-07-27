@@ -482,7 +482,7 @@ class Display:
         self.const_meldungs: List[Meldung] = [Meldung(symbol="ad", text=args.message)] if args.message else []
         self.meldungs: List[Meldung] = self.const_meldungs.copy()
 
-        self.datasources: List[DataSource] = []
+        self.datasources: Dict[str, DataSource] = {}
 
         ds_efa = DataSource("efa-main")
         _efa_args = {
@@ -561,15 +561,15 @@ class Display:
         ds_db_trainsonly.to_call.append(CallableWithKwargs(getefadeps, _db_trainsonly_efabackup_args_backup, call_args_retries_backup))
 
         if bvgrestid:
-            self.datasources.append(ds_bvg)
+            self.add_datasource(ds_bvg)
         elif ifopt:
             if dbrestibnr:
-                self.datasources.append(ds_efa_notrains)
-                self.datasources.append(ds_db_trainsonly)
+                self.add_datasource(ds_efa_notrains)
+                self.add_datasource(ds_db_trainsonly)
             else:
-                self.datasources.append(ds_efa)
+                self.add_datasource(ds_efa)
         elif dbrestibnr:
-            self.datasources.append(ds_db)
+            self.add_datasource(ds_db)
         else:
             # ggf. lokal only erlauben
             raise NoDatasourceException("no ifopt, dbrestibnr or bvgrestid..")
@@ -580,7 +580,7 @@ class Display:
                 {'url': ext_url, 'timeout': servertimeout, 'save_msg_path': save_msg_path}, call_args_retries_main))
             if save_msg_path:
                 ds_ext.to_call.append(CallableWithKwargs(getlocalmsg, {'save_msg_path': save_msg_path}, call_args_retries_local))
-            self.datasources.append(ds_ext)
+            self.add_datasource(ds_ext)
 
         if nina_url:
             _nina_opt = {'url': nina_url, 'timeout': 10, 'tz': tz, 'symbol': "warn", 'message_priority': nina_msg_priority}
@@ -591,12 +591,17 @@ class Display:
                 # evtl. besser: innerhalb 1 Funktionsaufruf alle laden oder anderweitig sicherstellen, dass die Reihenfolge erhalten bleibt
                 # ansonsten resettet sich die Scrollzeile zu häufig (da das Array dann anders ist, geht es von vorne los)
                 # außerdem Präfix mit Ortsnamen o. ä. ermöglichen
-                ds_nina = DataSource(f"nina-{ags}", critical=False)
+                ds_nina = DataSource(f"nina-{ags}", critical=False, skip=12)
                 ds_nina.to_call.append(CallableWithKwargs(getnina, {**_nina_opt, 'ags': ags}, 1))
-                self.datasources.append(ds_nina)
+                self.add_datasource(ds_nina)
 
         self.pe_f = None
         self.joined = True
+
+    def add_datasource(self, datasource: DataSource) -> None:
+        if datasource.name in {ds.name for ds in self.datasources.values()}:
+            raise ValueError(f"DataSource name {ds.name} already exists in self.datasources")
+        self.datasources[datasource.name] = datasource
 
     def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
         pass
@@ -606,7 +611,7 @@ class Display:
             self.joined = False
             self.pe_f = self.pe.submit(
                 getdeps,
-                datasources=self.datasources,
+                datasources=list(self.datasources.values()),
                 getdeps_timezone=tz,
                 getdeps_lines=self.limit,
                 getdeps_placelist=placelist,
@@ -626,13 +631,23 @@ class Display:
 
         if not self.joined and self.pe_f.done():
             try:
-                self.deps, self.meldungs, _add_data = self.pe_f.result()
+                self.deps, self.meldungs, _add_data, skip_dict = self.pe_f.result()
             except Exception as e:
                 if e.__class__ != GetdepsEndAll:
                     logger.exception("exception from getdeps")
                 self.deps = []
                 self.meldungs = [Meldung(symbol="warn", text="Fehler bei Datenabruf. Bitte Aushangfahrpläne beachten.")]
             else:
+                for datasource_name, result in skip_dict.items():
+                    datasource = self.datasources[datasource_name]
+                    if datasource._skip_cache is None:
+                        datasource._skip_remaining = datasource.skip - 1
+                        datasource._skip_cache = result
+                    elif datasource._skip_remaining:
+                        datasource._skip_remaining -= 1
+                    elif datasource._skip_remaining == 0:
+                        datasource._skip_remaining = None
+                        datasource._skip_cache = None
                 self.meldungs.extend(self.const_meldungs)
                 nowtime = datetime.now(tz)
                 for di, dep in enumerate(self.deps):
@@ -751,7 +766,7 @@ class FHSWFIserlohnDisplay(Display):
             'output_date': True
         }
         ds_fhswf_presse.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_presse, 1))
-        self.datasources.append(ds_fhswf_presse)
+        self.add_datasource(ds_fhswf_presse)
 
         # termine-feed ist sehr langsam! kann man nur zum testen verwenden. daher auch timeout 30.
         ds_fhswf_termine = DataSource("fhswf-rss-termine", critical=False)
@@ -761,7 +776,7 @@ class FHSWFIserlohnDisplay(Display):
             'filter_categories': {'Iserlohn : Veranstaltungen & Meldungen aus Iserlohn'}
         }
         ds_fhswf_termine.to_call.append(CallableWithKwargs(getrssfeed, _rss_opt_termine, 1))
-        self.datasources.append(ds_fhswf_termine)
+        self.add_datasource(ds_fhswf_termine)
 
 class KVBDisplay(Display):
     def __init__(self, *args, **kwargs):
@@ -775,7 +790,8 @@ class KVBDisplay(Display):
             "tz": tz,
             "filter_directions": {"Rochusplatz", "Bocklemünd"}
         }, 4))
-        self.datasources = [ds_kvb]
+        self.datasources = {}
+        self.add_datasource(ds_kvb)
 
     def render_header(self, canvas: FrameCanvas, r: int) -> int:
         toptext = datetime.now().strftime("%A %d.%m.%Y %H:%M")
@@ -856,7 +872,7 @@ def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
         meldung_scroller=meldung_scroller,
         after_meldung_lineheight=args.line_height)
 
-    logger.info(f"started loop with data sources {', '.join(_ds.name for _ds in display.datasources)}")
+    logger.info(f"started loop with data sources {', '.join(display.datasources.keys())}")
     while True:
         # time_measure = monotonic()
         canvas.Clear()
