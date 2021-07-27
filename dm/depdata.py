@@ -23,6 +23,7 @@ class Meldung:
     text: str
     color: Optional[str] = None
     efa: bool = False
+    priority: Optional[int] = None
     # blocking: bool = False
 
     def __post_init__(self):
@@ -51,6 +52,7 @@ class Departure:
     realtime: bool
     delay: int = 0  # minutes
     messages: Union[List[str], List[Meldung]] = field(default_factory=list)  # str als Zwischenschritt
+    message_priority: Optional[int] = None
     coursesummary: Optional[str] = None
     mot: Optional[MOT] = None
     # accessibility?
@@ -77,7 +79,7 @@ type_depmsgdata = Tuple[List[Departure], List[Meldung], type_data]
 
 def readefaxml(root: ET.Element, tz: timezone,
                ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
-               content_for_short_titles: bool = True) -> type_depmsgdata:
+               content_for_short_titles: bool = True, message_priority: Optional[int] = None) -> type_depmsgdata:
     deps: List[Departure] = []
     stop_messages: List[Meldung] = []
 
@@ -133,7 +135,7 @@ def readefaxml(root: ET.Element, tz: timezone,
 
     # Haltestellenmeldungen
     # sind auch bei einzelnen Abfahrten enthalten (itdStopInfoList), werden jetzt aber hier schon ausgelesen
-    stop_messages.extend(Meldung(symbol="info", text=msg, efa=True) for msg in readInfoLinks(_itdOdvName))
+    stop_messages.extend(Meldung(symbol="info", text=msg, efa=True, priority=message_priority) for msg in readInfoLinks(_itdOdvName))
 
     for dep in root.iter('itdDeparture'):
         servingline = dep.find('itdServingLine')
@@ -215,6 +217,7 @@ def readefaxml(root: ET.Element, tz: timezone,
                               realtime=isrealtime,
                               delay=delay,
                               messages=messages,
+                              message_priority=message_priority,
                               coursesummary=servingline.findtext('itdRouteDescText'),
                               mot=mot,
                               platformno=dep.get('platform'),
@@ -233,7 +236,8 @@ type_getpayload = Dict[str, Union[str, int, Iterable[Union[str, int]]]]
 
 def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: int, tz: timezone,
         userealtime: bool = True, exclMOT: Optional[Set[int]] = None, inclMOT: Optional[Set[int]] = None,
-        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None, content_for_short_titles: bool = True) -> type_depmsgdata:
+        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None, content_for_short_titles: bool = True,
+        message_priority: Optional[int] = None) -> type_depmsgdata:
     payload: type_getpayload = {'name_dm': ifopt, 'type_dm': 'any', 'mode': 'direct', 'useRealtime': int(userealtime), 'limit': str(limit)}
     if inclMOT:
         payload['includedMeans'] = inclMOT
@@ -243,7 +247,7 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
     r.raise_for_status()
     try:
         root = ET.fromstring(r.content)
-        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, content_for_short_titles)
+        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, content_for_short_titles, message_priority)
     except Exception:
         logger.debug(f"request data:\n{r.content}")
         raise
@@ -287,10 +291,10 @@ def getlocaldeps(local_dep_path: str, limit: int, tz: timezone, lookbehind_sec: 
 
 
 # basiert hauptsächlich auf db-rest. code insgesamt noch kaum getestet
-def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
+def readfptfjson(jsondata: List[Dict[str, Any]], *, limit: int,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
         exclRemarkTypes: Optional[Set[str]] = None, exclRemarkCodes: Optional[Set[str]] = None,
-        stripstart: Set[str] = {'Bus ', 'STR ', 'ABR ', 'ERB ', 'NWB ', 'WFB '}) -> type_depmsgdata:
+        stripstart: Set[str] = {'Bus ', 'STR ', 'ABR ', 'ERB ', 'NWB ', 'WFB '}, message_priority: Optional[int] = None) -> type_depmsgdata:
     deps: List[Departure] = []
     for dep in jsondata:
         if len(deps) >= limit: break
@@ -365,6 +369,7 @@ def readfptfjson(jsondata: List[Dict[str, Any]], limit: int,
                               realtime=isrealtime,
                               delay=delaymins,
                               messages=messages,
+                              message_priority=message_priority,
                               #coursesummary=...,
                               mot=mot,
                               platformno=dep.get("platform"),
@@ -380,7 +385,7 @@ def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
         station_id: str, limit: int, direction: Optional[str] = None,
         inclMOT: Optional[Set[MOT]] = None, exclMOT: Optional[Set[MOT]] = None,
         exclRemarkTypes: Optional[Set[str]] = None, exclRemarkCodes: Optional[Set[str]] = None,
-        duration: int = 120, language: str = "de") -> type_depmsgdata:
+        duration: int = 120, language: str = "de", message_priority: Optional[int] = None) -> type_depmsgdata:
     payload: type_getpayload = {'language': language, 'duration': duration}
     if direction:
         payload['direction'] = direction
@@ -388,7 +393,7 @@ def getfptfrestdeps(serverurl: str, timeout: Union[int, float],
     r.raise_for_status()
     try:
         requestdata = r.json()
-        result = readfptfjson(requestdata, limit, inclMOT, exclMOT, exclRemarkTypes, exclRemarkCodes)
+        result = readfptfjson(requestdata, limit=limit, inclMOT=inclMOT, exclMOT=exclMOT, exclRemarkTypes=exclRemarkTypes, exclRemarkCodes=exclRemarkCodes, message_priority=message_priority)
     except Exception:
         logger.debug(f"request data:\n{r.content}")
         raise
@@ -434,7 +439,7 @@ def getkvbmonitor(STATION_ID: int, tz: timezone, limit: int = 0,
 
 def getrssfeed(url: str, timeout: Union[int, float], tz: timezone, symbol: str = "info",
         limit: int = 0, limit_timedelta: timedelta = timedelta(),
-        filter_categories: Optional[Collection[str]] = None, output_date: bool = False) -> type_depmsgdata:
+        filter_categories: Optional[Collection[str]] = None, output_date: bool = False, message_priority: Optional[int] = None) -> type_depmsgdata:
     # bisher nicht implementiert: Ausgabe von description oder content:encoded
     # (ist aber ohne weitere Verarbeitung oft ungeeignet für diese Darstellungsart)
     messages: List[Meldung] = []
@@ -448,7 +453,63 @@ def getrssfeed(url: str, timeout: Union[int, float], tz: timezone, symbol: str =
         if filter_categories and not any(_c.text in filter_categories for _c in item.findall('category')):
             continue
         messages.append(Meldung(symbol=symbol,
-            text=item.find('title').text + output_date * _pubDate.strftime(" (%d.%m.%y)")))
+            text=item.find('title').text + output_date * _pubDate.strftime(" (%d.%m.%y)"),
+            priority=message_priority))
+        if limit > 0 and len(messages) >= limit:
+            break
+    return [], messages, []
+
+
+def _nina_out_time(dt: datetime, format: str, format_onlydate: str, tz: timezone, format_nodate: Optional[str] = None, pair_first: Optional[datetime] = None):
+    if format_nodate and pair_first and dt.date() == pair_first.date():
+        return dt.strftime(format_nodate)
+    _today = datetime.now(tz).date()
+    return dt.strftime(format).replace(_today.strftime(format_onlydate), "Heute") if dt.date() == _today else dt.strftime(format)
+
+def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol: str = "warn",
+        limit: int = 0, limit_timedelta: timedelta = timedelta(), message_priority: Optional[int] = None,
+        ignore_msgType: Optional[Collection[str]] = None,
+        ignore_severity: Optional[Collection[str]] = None,
+        ignore_id: Optional[Collection[str]] = None) -> type_depmsgdata:
+    messages: List[Meldung] = []
+    nowtime = datetime.now(tz)
+    _time_in = "%Y-%m-%dT%H:%M:%S%z"
+    _time_out_onlydate = '%d.%m'
+    _time_out_nodate = '%H:%M'
+    _time_out = f"{_time_out_onlydate} {_time_out_nodate}"
+    r = get(f"{url}{ags}.json", timeout=timeout)
+    r.raise_for_status()
+    warnings = r.json()
+    for warning in warnings:
+        if ignore_id and warning['id'] in ignore_id: continue
+        payload = warning['payload']
+        assert payload
+        data = payload['data']
+        assert data
+        if ignore_msgType and data['msgType'] in ignore_msgType: continue
+        if ignore_severity and data['severity'] in ignore_severity: continue
+
+        if warning.get('onset'):
+            _onS = ''.join(warning['onset'].rsplit(":", 1))
+            _onDT = datetime.strptime(_onS, _time_in)
+            if nowtime < _onDT: continue
+        if warning.get('expires'):
+            _expS = ''.join(warning['expires'].rsplit(":", 1))
+            _expDT = datetime.strptime(_expS, _time_in)
+            if nowtime > _expDT: continue
+
+        msgtext = data['headline']
+        startS = warning.get('onset') or warning.get('effective') or warning.get('sent')
+        if startS:
+            startS = ''.join(startS.rsplit(":", 1))
+            startDT = datetime.strptime(startS, _time_in)
+            if warning.get('expires'): # _expDT from above
+                msgtext += f" ({_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)} - {_nina_out_time(_expDT, _time_out, _time_out_onlydate, tz, _time_out_nodate,startDT)})"
+            else:
+                msgtext += f" (Stand: {_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)})"
+
+        messages.append(Meldung(symbol=symbol, text=msgtext, priority=message_priority))
+
         if limit > 0 and len(messages) >= limit:
             break
     return [], messages, []
@@ -544,7 +605,7 @@ def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[
             # + guten weg finden, run.env/run.sh anzupassen, langfristig
             _json_msg = requestdata.get("messages")
             if _json_msg is not None:
-                messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color")) for msg in _json_msg]
+                messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
             if save_msg_path:
                 _saved = ""
                 _dump = json_dumps(_json_msg or "[]")
@@ -602,7 +663,7 @@ def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
         pass
     else:
         _json_msg = json_loads(_saved)
-        messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color")) for msg in _json_msg]
+        messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
     return [], messages, {}
 
 
@@ -655,10 +716,14 @@ def getdeps(
         extramsg_messagelines: int = 1,
         delaymsg_enable: bool = True,
         delaymsg_mindelay: int = 1,
+        delaymsg_priority: Optional[int] = None,
         etermmsg_enable: bool = True,
         etermmsg_only_visible: bool = True,
+        etermmsg_priority: Optional[int] = None,
         nodepmsg_enable: bool = True,
-        nortmsg_limit: Optional[int] = 20
+        nodepmsg_priority: Optional[int] = None,
+        nortmsg_limit: Optional[int] = 20,
+        nortmsg_priority: Optional[int] = None
         ) -> type_depmsgdata:
     deps: List[Departure] = []
     messages: List[Meldung] = []
@@ -712,9 +777,10 @@ def getdeps(
     if _makemessages(sorteddeps, getdeps_lines - extramsg_messagelines): extramsg_messageexists = True
     messages.extend(_extramessages(sorteddeps, getdeps_lines,
                                    extramsg_messageexists, extramsg_messagelines,
-                                   delaymsg_enable, delaymsg_mindelay,
-                                   etermmsg_enable, etermmsg_only_visible,
-                                   nodepmsg_enable, nortmsg_limit))  # erweitert selber schon die dep.messages
+                                   delaymsg_enable=delaymsg_enable, delaymsg_mindelay=delaymsg_mindelay, delaymsg_priority=delaymsg_priority,
+                                   etermmsg_enable=etermmsg_enable, etermmsg_only_visible=etermmsg_only_visible, etermmsg_priority=etermmsg_priority,
+                                   nodepmsg_enable=nodepmsg_enable, nodepmsg_priority=nodepmsg_priority,
+                                   nortmsg_limit=nortmsg_limit, nortmsg_priority=nortmsg_priority))  # erweitert selber schon die dep.messages
     return sorteddeps, messages, data
 
 linenumpattern = re_compile('([a-zA-Z]+) *([0-9]+)')
@@ -740,15 +806,16 @@ def _makemessages(sorteddeps: List[Departure], depline_count: int) -> bool:
         for mi, msg in enumerate(dep.messages):
             if di < depline_count:
                 visible_message_exists = True
-            dep.messages[mi] = Meldung(symbol="info", text=msg, efa=True)
+            dep.messages[mi] = Meldung(symbol="info", text=msg, efa=True, priority=dep.message_priority)
     return visible_message_exists
 
 
 def _extramessages(sorteddeps: List[Departure], departure_lines: int,
-                   message_exists: bool, message_lines: int,
-                   delaymsg_enable: bool = True, delaymsg_mindelay: int = 1,
-                   etermmsg_enable: bool = True, etermmsg_only_visible: bool = True,
-                   nodepmsg_enable: bool = True, nortmsg_limit: Optional[int] = 20) -> List[Meldung]:
+                   message_exists: bool, message_lines: int, *,
+                   delaymsg_enable: bool = True, delaymsg_mindelay: int = 1, delaymsg_priority: Optional[int] = None,
+                   etermmsg_enable: bool = True, etermmsg_only_visible: bool = True, etermmsg_priority: Optional[int] = None,
+                   nodepmsg_enable: bool = True, nodepmsg_priority: Optional[int] = None,
+                   nortmsg_limit: Optional[int] = 20, nortmsg_priority: Optional[int] = None) -> List[Meldung]:
     general_messages: List[Meldung] = []
     delaymsg_i: Set[int] = set()
     etermmsg_i: Set[int] = set()
@@ -776,7 +843,7 @@ def _extramessages(sorteddeps: List[Departure], departure_lines: int,
             else:
                 _txt = f"{dep.disp_linenum}→{dep.disp_direction} ({dephr:02}:{depmin:02}) heute {delaystr} später"
             # erstmal das gleiche symbol, eigenes sah nach etwas zu viel aus..
-            dep.messages.append(Meldung(symbol="delay", text=_txt))
+            dep.messages.append(Meldung(symbol="delay", text=_txt, priority=delaymsg_priority))
     for eterm_di in sorted(etermmsg_i):
         # >= departure_lines weil wenn es durch eine Meldung verdeckt wird ist es auch ok, "überschreibend"..
         if etermmsg_only_visible and eterm_di >= departure_lines:
@@ -786,13 +853,17 @@ def _extramessages(sorteddeps: List[Departure], departure_lines: int,
         # delaystr: für die sichtbaren (weil schon bald) aber verspäteten Fahrten
         # ggf. optional oder ersetzen durch anzeige in der Zeile selbst oderso..
         delaystr = f", heute +{dep.delay}" if dep.delay > 0 else ""
-        dep.messages.append(Meldung(symbol="earlyterm", text=f"{dep.disp_linenum}→{dep.direction_planned} ({dephr:02}:{depmin:02}{delaystr}) fährt nur bis {dep.disp_direction}"))
+        dep.messages.append(Meldung(
+            symbol="earlyterm",
+            text=f"{dep.disp_linenum}→{dep.direction_planned} ({dephr:02}:{depmin:02}{delaystr}) fährt nur bis {dep.disp_direction}",
+            priority=etermmsg_priority
+        ))
     if sorteddeps:
         if nortmsg_limit is not None and not any(dep.realtime for dep in sorteddeps) and sorteddeps[0].disp_countdown <= nortmsg_limit:
-            general_messages.append(Meldung(symbol="nort", text="aktuell sind keine Echtzeitdaten vorhanden..."))
+            general_messages.append(Meldung(symbol="nort", text="aktuell sind keine Echtzeitdaten vorhanden...", priority=nortmsg_priority))
     else:
         if nodepmsg_enable:
-            general_messages.append(Meldung(symbol="nodeps", text="aktuell keine Abfahrten"))
+            general_messages.append(Meldung(symbol="nodeps", text="aktuell keine Abfahrten", priority=nodepmsg_priority))
     return general_messages
 
 
