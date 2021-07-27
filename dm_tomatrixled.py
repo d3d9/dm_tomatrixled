@@ -23,7 +23,7 @@ import dm
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
-from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed, getkvbmonitor
+from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed, getnina, getkvbmonitor
 
 
 ### Logging
@@ -46,6 +46,7 @@ parser.add_argument("--hst-colors", action="store_true", help="Use HST (Hagen) N
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
 parser.add_argument("--save-msg-path", action="store", help="file path to store/load test-ext-message as a backup option", default="./log/saved_msg.json", type=str)
 parser.add_argument("--local-deps", action="store", help="file path to local csv with departures, cmdline option only applied if EFA (not DB/BVG/..) is used", default="", type=str)
+
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
 parser.add_argument("-m", "--message", action="store", help="Message to scroll at the bottom. Default: none", default="", type=str)
 parser.add_argument("-r", "--rightbar", action="store", help="Enable sidebar on the right side with additional info. Disables header clock. Value: type of rightbar (1: vertical clock (default if just -r); 2: clock with icon, wide; 3: clock with progress, VRR icon, allows scrolling through it", nargs="?", const=1, default=0, type=int)
@@ -84,6 +85,13 @@ parser.add_argument("--small-platform", action="store_true", help="Show platform
 parser.add_argument("--update-steps", action="store", help="Loop steps until reload of data. Default: 600", default=600, type=int)
 parser.add_argument("--sleep-interval", action="store", help="Sleep interval (inside the main loop). Default: 0.03", default=0.03, type=float)
 parser.add_argument("--limit-multiplier", action="store", help="How many extra departures (value * actual limit) to load (useful for stops with a lot of departures where a few delays might \"hide\" earlier departures. Default: 3", default=3, type=int)
+
+parser.add_argument("--nina-url", action="store", help="NINA API dashboard base URL", default="", type=str)
+parser.add_argument("--nina-ags", action="append", help="NINA API amtlicher Gemeindeschlüssel AGS (can be used multiple times)", default=[], type=str)
+parser.add_argument("--nina-ignore-msgType", action="append", help="NINA API ignore this msgType (can be used multiple times)", default=[], type=str)
+parser.add_argument("--nina-ignore-severity", action="append", help="NINA API ignore this severity (can be used multiple times)", default=[], type=str)
+parser.add_argument("--nina-ignore-id", action="append", help="NINA API ignore this ID (can be used multiple times)", default=[], type=str)
+
 # matrix settings
 parser.add_argument("-c", "--led-chain", action="store", help="Daisy-chained boards. Default: 2.", default=2, type=int)
 parser.add_argument("-b", "--led-brightness", action="store", help="Sets brightness level. Default: 30. Range: 1..100", default=30, type=int)
@@ -362,6 +370,12 @@ save_msg_path = args.save_msg_path
 
 local_deps = args.local_deps
 
+nina_url = args.nina_url
+nina_ags = tuple(args.nina_ags)
+nina_ignore_msgType = set(args.nina_ignore_msgType)
+nina_ignore_severity = set(args.nina_ignore_severity)
+nina_ignore_id = set(args.nina_ignore_id)
+
 # z. B. Aufzugsmeldungen
 # ignore_infoTypes = {"stopInfo"}
 ignore_infoTypes = set(args.ignore_infotype) if args.ignore_infotype else None
@@ -562,6 +576,19 @@ class Display:
             if save_msg_path:
                 ds_ext.to_call.append(CallableWithKwargs(getlocalmsg, {'save_msg_path': save_msg_path}, call_args_retries_local))
             self.datasources.append(ds_ext)
+
+        if nina_url:
+            _nina_opt = {'url': nina_url, 'timeout': 10, 'tz': tz, 'symbol': "warn"}
+            if nina_ignore_msgType: _nina_opt['ignore_msgType'] = nina_ignore_msgType
+            if nina_ignore_severity: _nina_opt['ignore_severity'] = nina_ignore_severity
+            if nina_ignore_id: _nina_opt['ignore_id'] = nina_ignore_id
+            for ags in nina_ags:
+                # evtl. besser: innerhalb 1 Funktionsaufruf alle laden oder anderweitig sicherstellen, dass die Reihenfolge erhalten bleibt
+                # ansonsten resettet sich die Scrollzeile zu häufig (da das Array dann anders ist, geht es von vorne los)
+                # außerdem Präfix mit Ortsnamen o. ä. ermöglichen
+                ds_nina = DataSource(f"nina-{ags}", critical=False)
+                ds_nina.to_call.append(CallableWithKwargs(getnina, {**_nina_opt, 'ags': ags}, 1))
+                self.datasources.append(ds_nina)
 
         self.pe_f = None
         self.joined = True

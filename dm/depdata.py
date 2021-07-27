@@ -454,6 +454,61 @@ def getrssfeed(url: str, timeout: Union[int, float], tz: timezone, symbol: str =
     return [], messages, []
 
 
+def _nina_out_time(dt: datetime, format: str, format_onlydate: str, tz: timezone, format_nodate: Optional[str] = None, pair_first: Optional[datetime] = None):
+    if format_nodate and pair_first and dt.date() == pair_first.date():
+        return dt.strftime(format_nodate)
+    _today = datetime.now(tz).date()
+    return dt.strftime(format).replace(_today.strftime(format_onlydate), "Heute") if dt.date() == _today else dt.strftime(format)
+
+def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol: str = "warn",
+        limit: int = 0, limit_timedelta: timedelta = timedelta(),
+        ignore_msgType: Optional[Collection[str]] = None,
+        ignore_severity: Optional[Collection[str]] = None,
+        ignore_id: Optional[Collection[str]] = None) -> type_depmsgdata:
+    messages: List[Meldung] = []
+    nowtime = datetime.now(tz)
+    _time_in = "%Y-%m-%dT%H:%M:%S%z"
+    _time_out_onlydate = '%d.%m'
+    _time_out_nodate = '%H:%M'
+    _time_out = f"{_time_out_onlydate} {_time_out_nodate}"
+    r = get(f"{url}{ags}.json", timeout=timeout)
+    r.raise_for_status()
+    warnings = r.json()
+    for warning in warnings:
+        if ignore_id and warning['id'] in ignore_id: continue
+        payload = warning['payload']
+        assert payload
+        data = payload['data']
+        assert data
+        if ignore_msgType and data['msgType'] in ignore_msgType: continue
+        if ignore_severity and data['severity'] in ignore_severity: continue
+
+        if warning.get('onset'):
+            _onS = ''.join(warning['onset'].rsplit(":", 1))
+            _onDT = datetime.strptime(_onS, _time_in)
+            if nowtime < _onDT: continue
+        if warning.get('expires'):
+            _expS = ''.join(warning['expires'].rsplit(":", 1))
+            _expDT = datetime.strptime(_expS, _time_in)
+            if nowtime > _expDT: continue
+
+        msgtext = data['headline']
+        startS = warning.get('onset') or warning.get('effective') or warning.get('sent')
+        if startS:
+            startS = ''.join(startS.rsplit(":", 1))
+            startDT = datetime.strptime(startS, _time_in)
+            if warning.get('expires'): # _expDT from above
+                msgtext += f" ({_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)} - {_nina_out_time(_expDT, _time_out, _time_out_onlydate, tz, _time_out_nodate,startDT)})"
+            else:
+                msgtext += f" (Stand: {_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)})"
+
+        messages.append(Meldung(symbol=symbol, text=msgtext))
+
+        if limit > 0 and len(messages) >= limit:
+            break
+    return [], messages, []
+
+
 def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[str] = None) -> type_depmsgdata:
     messages: List[Meldung] = []
     data: type_data = {}
