@@ -503,7 +503,7 @@ def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol
         if startS:
             startS = ''.join(startS.rsplit(":", 1))
             startDT = datetime.strptime(startS, _time_in)
-            if warning.get('expires'): # _expDT from above
+            if warning.get('expires') and data['msgType'] not in {'Cancel'}: # _expDT from above
                 msgtext += f" ({_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)} - {_nina_out_time(_expDT, _time_out, _time_out_onlydate, tz, _time_out_nodate,startDT)})"
             else:
                 msgtext += f" (Stand: {_nina_out_time(startDT, _time_out, _time_out_onlydate, tz)})"
