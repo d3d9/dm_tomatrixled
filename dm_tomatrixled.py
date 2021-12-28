@@ -136,7 +136,7 @@ if args.led_no_hardware_pulse:
 options.daemon = args.daemon
 options.drop_privileges = 0
 
-FORK = False
+FORK = True  # d3d9/rpi-rgb-led-matrix fork
 writeppm = bool(args.write_ppm)
 ppmfile = args.write_ppm
 options.pixelsvector = writeppm
