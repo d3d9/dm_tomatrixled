@@ -136,6 +136,7 @@ if args.led_no_hardware_pulse:
 options.daemon = args.daemon
 options.drop_privileges = 0
 
+FORK = False
 writeppm = bool(args.write_ppm)
 ppmfile = args.write_ppm
 options.pixelsvector = writeppm
@@ -799,8 +800,8 @@ class KVBDisplay(Display):
         return self.after_stop_lineheight
 
 
-def loop(matrix: FrameCanvas, pe: Executor, sleep_interval: int) -> NoReturn:
-    canvas = matrix.CreateFrameCanvas(writeppm)
+def loop(matrix: RGBMatrix, pe: Executor, sleep_interval: int) -> NoReturn:
+    canvas = matrix.CreateFrameCanvas(writeppm) if FORK else matrix.CreateFrameCanvas()
     x_min = 0
     y_min = 0
     x_max = canvas.width - 1
@@ -908,7 +909,7 @@ if __name__ == "__main__":
     logger.info("started")
     matrix = RGBMatrix(options=options)
     if args.show_start:
-        startcanvas = matrix.CreateFrameCanvas(writeppm)
+        startcanvas = matrix.CreateFrameCanvas(writeppm) if FORK else matrix.CreateFrameCanvas()
         startscreen(startcanvas, fontsmall, lighttextColor, ifopt, ppm_smile)
         matrix.SwapOnVSync(startcanvas)
         sleep(5)
