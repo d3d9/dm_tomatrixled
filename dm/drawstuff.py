@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import random
-from rgbmatrix import graphics
+from RGBMatrixEmulator import graphics
 
 
 def clockstr_tt(tt):

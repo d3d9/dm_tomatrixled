@@ -1,0 +1,5 @@
+{
+    "pixel_size": 5,
+    "pixel_style": "circle",
+    "display_adapter": "pygame"
+}

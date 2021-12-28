@@ -16,8 +16,10 @@ from typing import List, Iterable, Tuple, Optional, NoReturn, Union, Callable, S
 
 from loguru import logger
 from PIL import Image
-from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
-from rgbmatrix.core import FrameCanvas
+#from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+#from rgbmatrix.core import FrameCanvas
+from RGBMatrixEmulator import RGBMatrix, RGBMatrixOptions, graphics
+from RGBMatrixEmulator.emulators.canvas import Canvas as FrameCanvas
 
 import dm
 from dm.drawstuff import clockstr_tt, colorppm

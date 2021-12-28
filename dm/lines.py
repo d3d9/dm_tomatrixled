@@ -6,8 +6,8 @@ from re import Pattern, match as re_match
 from typing import List, Optional, Callable, Tuple, Dict, Match
 
 from PIL import Image
-from rgbmatrix import graphics
-from rgbmatrix.core import FrameCanvas
+from RGBMatrixEmulator import graphics
+from RGBMatrixEmulator.emulators.canvas import Canvas as FrameCanvas
 from webcolors import hex_to_rgb
 
 from .drawstuff import clockstr_tt, drawppm_bottomleft, drawppm_bottomright
