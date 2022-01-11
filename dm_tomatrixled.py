@@ -225,7 +225,8 @@ meldungicons = {
 symtextoffset = fonttext.height-fonttext.baseline
 
 ppm_whitemin = Image.open(f"{ppmdir}white-min.ppm")
-ppmmincolordict = {_color: colorppm(ppm_whitemin, _color) for _color in set(getattr(realtimecolors, f.name) for f in fields(realtimecolors))}
+_rtcolors = filter(lambda _: _ is not None, set(getattr(realtimecolors, f.name) for f in fields(realtimecolors)))
+ppmmincolordict = {_color: colorppm(ppm_whitemin, _color) for _color in _rtcolors}
 
 supportedcdlhs = (6, 7)
 defaultppmcdlh = 6
@@ -238,7 +239,7 @@ ppm_whitetram = Image.open(f"{ppmdir}white-tram{ppmcdh}.ppm")
 ppm_whitehanging = Image.open(f"{ppmdir}white-hanging{ppmcdh}.ppm")
 
 ppm_whitesofort = Image.open(f"{ppmdir}white-sofort.ppm")
-sofort = False
+sofort = False  # Alternative: Option zerosofort von CountdownOptions, ggf. Schrift anpassen
 
 if sofort:
     ppmmotdict = dict.fromkeys((MOT.BUS, MOT.TRAIN, MOT.HISPEED, MOT.TRAM, MOT.HANGING), ppm_whitesofort)
@@ -278,10 +279,12 @@ linenumopt = LinenumOptions(
 
 longausfall = True
 ppm_ausfall = Image.open(f"{ppmdir}red-ausfall{'-long' if longausfall else ''}.ppm")
+# ppm_ausfall wird nur genutzt, wenn als Option cancelled_symbol von CountdownOptions angegeben.
+# Neues Standardverhalten: "entfällt" blinkt abwechselnd mit Zieltext, Countdown zeigt absolute geplante Abfahrtszeit
 
 countdownopt = CountdownOptions(
     font=fontcountdown,
-    cancelled_symbol=ppm_ausfall,
+    realtime_colors=realtimecolors,
     mot_symbols=ppmmotdict,
     mot_coloured_symbols=ppmmotcolordict,
     min_symbol=ppm_whitemin,
@@ -291,8 +294,11 @@ countdownopt = CountdownOptions(
     minnegativedelay=args.min_negativedelay,
     maxmin=args.max_minutes,
     zerobus=args.show_zero,
-    mintext=args.disable_mintext,
-    minoffset=1)
+    blink=args.disable_blink,
+    min_text=args.disable_mintext,
+    min_text_offset=1,
+    # cancelled_symbol=ppm_ausfall
+    )
 
 platformopt = PlatformOptions(
     width=args.platform_width,
@@ -312,7 +318,6 @@ efamenabled = args.enable_efamessages
 headername = args.stop_name
 headerscroll = args.disable_topscroll
 progress = args.show_progress
-blink = args.disable_blink
 # zur config (und alles andere eigentlich auch):
 stopsymbol = True
 melsymbol = True
@@ -691,8 +696,7 @@ class Display:
             # TODO: nur innerhalb der Grenzen vom Display fillen
             canvas.Fill(*self.bgColor_t)
 
-        blinkstep = self.i % 40 < 20
-        blinkon = blinkstep or not blink
+        blinkon = self.i % 60 < 30
         dep_lineheights = self.dep_lineheight_gen(self)
         r = self.y_min + self.text_startr
 
@@ -811,7 +815,7 @@ def loop(matrix: RGBMatrix, pe: Executor, sleep_interval: int) -> NoReturn:
     display_x_max = x_max - (rightbar and (rightbarwidth + spaceDr))
     display_y_max = y_max
 
-    scrollColor = lighttextColor
+    scrollColor = graytextColor
 
     def make_columns(l: int, r: int, c: int, spacing: int = 0) -> Sequence[Tuple[int, int]]:
         colwidth = ((r-l+1) // c) - (c-1)*(spacing - (spacing // 2))
@@ -837,12 +841,11 @@ def loop(matrix: RGBMatrix, pe: Executor, sleep_interval: int) -> NoReturn:
         linenumopt=linenumopt,
         countdownopt=countdownopt,
         platformopt=platformopt,
-        realtimecolors=realtimecolors
     ) for _l, _r in depcolumns for _ in range(args.lines or calc_limit)]
 
     # xmax hier muss man eigentlich immer neu berechnen
     scrollx_stop_xmax = display_x_max-((not rightbar) and header_spacest+textpx(fonttext, clockstr_tt(localtime())))
-    stop_scroller = SimpleScrollline(display_x_min, scrollx_stop_xmax, symtextoffset, fonttext, scrollColor, noscroll=not headerscroll)
+    stop_scroller = SimpleScrollline(display_x_min+2, scrollx_stop_xmax, symtextoffset, fonttext, scrollColor, symtextspacing=2, noscroll=not headerscroll)
 
     scrollx_msg_xmax = x_max if scrollmsg_through_rightbar else display_x_max
     meldung_scroller = MultisymbolScrollline(display_x_min, scrollx_msg_xmax, symtextoffset, fonttext, scrollColor, meldungicons, bgcolor_t=matrixbgColor_t, initial_pretext=2, initial_posttext=10)

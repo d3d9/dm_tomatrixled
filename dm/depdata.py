@@ -193,7 +193,8 @@ def readefaxml(root: ET.Element, tz: timezone,
 
         itdNoTrainText = servingline.findtext('itdNoTrain')
         if itdNoTrainText:
-            messages.append(f"{linenum}: {itdNoTrainText}")
+            # len(linenum) > 1, damit einstellige Liniennummern nicht als Bestandteil von Telefonnummern als schon enthalten erkannt werden
+            messages.append(itdNoTrainText if (len(linenum) > 1 and linenum in itdNoTrainText) else f"{linenum}: {itdNoTrainText}")
 
         mot = None
         motType = int(servingline.get('motType'))
