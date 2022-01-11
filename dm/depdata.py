@@ -665,7 +665,8 @@ def getdeps(
         datasources: List[DataSource],
         getdeps_timezone: timezone,
         getdeps_lines: int,
-        getdeps_placelist: Optional[List[str]] = None,
+        getdeps_dest_replacements: Optional[Iterable[Tuple[str, str]]] = None,
+        getdeps_dest_replacements_uncut: Optional[Set[str]] = set(),
         getdeps_mincountdown: int = -9,
         extramsg_messageexists: Optional[bool] = None,
         extramsg_messagelines: int = 1,
@@ -724,9 +725,10 @@ def getdeps(
                 dep.disp_direction = dep.headsign.replace("\n", "/")
             else:
                 dep.disp_direction = dep.direction
-        if getdeps_placelist:
-            for place in getdeps_placelist:  # auslagern, feiner machen, +abk.verz.?
-                dep.disp_direction = dep.disp_direction.replace(place, "")
+        if getdeps_dest_replacements:
+            for (old, new) in getdeps_dest_replacements:
+                if new == "" and dep.disp_direction in getdeps_dest_replacements_uncut: continue
+                dep.disp_direction = dep.disp_direction.replace(old, new)
         if dep.mot is None:
             dep.mot = MOT.BUS
         if dep.delay is None:

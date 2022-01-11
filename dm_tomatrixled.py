@@ -62,7 +62,9 @@ parser.add_argument("--columns", action="store", help="Departure columns per lin
 parser.add_argument("--column-spacing", action="store", help="Space in pixels between columns. Default: 0", default=0, type=int)
 parser.add_argument("--column-zigzag", action="store_true", help="Show departures in columns ordered from left->right, left->right etc. instead of top->bottom, top->bottom")
 parser.add_argument("--platform-width", action="store", help="pixels for platform, 0 to disable. Default: 0", default=0, type=int)
-parser.add_argument("--place-string", action="append", help="Strings that are usually at the beginning of stop names, to be filtered out (for example (default:) \"Hagen \", \"HA-\")", default=[], type=str, dest="place_strings")
+parser.add_argument("--place-string", action="append", help="Strings that are usually at the beginning of destination names, to be filtered out (for example \"Hagen \" or \"HA-\"). Can be used multiple times.", default=[], type=str, dest="place_strings")
+parser.add_argument("--keep-place-string-for", action="append", help="Do not remove --place-string texts for destinations with this text (for example \"Hagen Hauptbahnhof\"). Can be used multiple times.", default=[], type=str, dest="keep_place_strings")
+parser.add_argument("--dest-replacement", action="append", help="Strings to be replaced in the destination texts, can be used for abbreviations. Use %% as separator. Format example: \"Hauptbahnhof%%Hbf.\". Can be used multiple times.", default=[], type=str, dest="dest_replacements")
 parser.add_argument("--ignore-infotype", action="append", help="EFA: ignore this 'infoType' (can be used multiple times)", default=[], type=str)
 parser.add_argument("--ignore-infoid", action="append", help="EFA: ignore this 'infoID' (can be used multiple times)", default=[], type=str)
 parser.add_argument("--no-rt-msg", action="store", help="Show warning if no realtime departures are returned, value of this parameter is the maximum countdown up to which one would usually expect a RT departure. Default: 20", default=20, type=int)
@@ -310,9 +312,13 @@ platformopt = PlatformOptions(
 
 ### Display configuration
 
-placelist = args.place_strings
-if not placelist:
-    placelist = [", Hagen (Westf)", "Hagen ", "HA-"]
+dest_replacements = [(ps, "") for ps in args.place_strings]
+uncut_destinations = set(args.keep_place_strings)
+for dr in args.dest_replacements:
+    parts = dr.split('%')
+    assert len(parts) == 2, "--dest-replacement string should contain exactly one '%'"
+    dest_replacements.append(tuple(parts))
+
 ifopt = args.stop_ifopt
 efamenabled = args.enable_efamessages
 headername = args.stop_name
@@ -620,7 +626,8 @@ class Display:
                 datasources=list(self.datasources.values()),
                 getdeps_timezone=tz,
                 getdeps_lines=self.limit,
-                getdeps_placelist=placelist,
+                getdeps_dest_replacements=dest_replacements,
+                getdeps_dest_replacements_uncut=uncut_destinations,
                 getdeps_mincountdown=countdownlowerlimit,
                 extramsg_messageexists=bool(self.const_meldungs),
                 extramsg_messagelines = self.meldung_hiddendeps,
