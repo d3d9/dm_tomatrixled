@@ -1,5 +1,6 @@
 #!/bin/bash
 
+hagenreplace='--place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --keep-place-string "Hagen Hauptbahnhof" --dest-replacement "Hagen Hauptbahnhof%Hagen Hbf"'
 brightness=${brightness:-20}
 
 if [ ! $(id -u) -eq 0 ]; then
@@ -33,19 +34,19 @@ moers)
   python3.9 dm_tomatrixled.py -b$brightness -e -l8 -f8 --update-steps 330 --led-parallel 3 --led-slowdown-gpio 2 -t --place-string "Moers " --test-ext "https://d3d9.xyz:8008/data?id=moers-rathaus" -s de:05170:36298
   ;;
 feuerwache)
-  ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --test-ext https://d3d9.xyz:8008/data?id=feuerwache --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW" # --no-rt-msg -1
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --test-ext https://d3d9.xyz:8008/data?id=feuerwache --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
   ;;
 emilienplatz)
-  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST
   ;;
 emilienplatz3)
-  ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15
+  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15
   ;;
 hagenhbfefa)
-  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
+  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
   ;;
 hagenhbf)
-  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --ibnr "08000142"
+  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --ibnr "08000142"
   ;;
 essenhbfefa)
   ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string "Essen " --place-string "E-"
