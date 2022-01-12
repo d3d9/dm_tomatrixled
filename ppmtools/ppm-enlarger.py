@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-repeat = 10
-spacing = 6
+import sys
+
+repeat = 5
+spacing = 2
 bgcolor_t = (8,8,8)
 
-with open("out-orig.ppm", "rb") as f:
+with open(sys.argv[1], "rb") as f:
     b = f.read()
 
 _firstn = b.index(b"\n")

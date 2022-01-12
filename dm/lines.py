@@ -235,34 +235,7 @@ class LinenumOptions:
     pattern: Pattern
     retext_1: _retexttype
     retext_2: _retexttype
-
-
-@dataclass
-class CountdownOptions:
-    font: graphics.Font
-    cancelled_symbol: Image.Image
-    mot_symbols: Dict[MOT, Image.Image]
-    mot_coloured_symbols: Dict[graphics.Color, Dict[MOT, Image.Image]]
-    min_symbol: Image.Image
-    min_coloured_symbols: Dict[graphics.Color, Image.Image]
-    mindelay: int
-    minslightdelay: int
-    minnegativedelay: int
-    maxmin: int
-    zerobus: bool
-    mintext: bool
-    minoffset: int
-    use_disp_countdown: bool = False
-
-
-@dataclass
-class PlatformOptions:
-    width: int
-    textColor: graphics.Color
-    texthighlightColor: graphics.Color
-    normalFont: graphics.Font
-    smallFont: graphics.Font
-    normalsmalloffset: int
+    align_left: bool = False
 
 
 @dataclass
@@ -273,6 +246,38 @@ class RealtimeColors:
     high_delay: graphics.Color
     cancelled: graphics.Color
     negative_delay: graphics.Color
+
+
+@dataclass
+class CountdownOptions:
+    font: graphics.Font
+    realtime_colors: RealtimeColors
+    mot_symbols: Dict[MOT, Image.Image]
+    mot_coloured_symbols: Dict[graphics.Color, Dict[MOT, Image.Image]]
+    min_symbol: Image.Image
+    min_coloured_symbols: Dict[graphics.Color, Image.Image]
+    mindelay: int
+    minslightdelay: int
+    minnegativedelay: int
+    maxmin: int
+    zerobus: bool
+    min_text: bool
+    min_text_offset: int
+    in_min_text: bool = False
+    blink: bool = True
+    zerosofort: bool = False
+    use_disp_countdown: bool = False
+    cancelled_symbol: Optional[Image.Image] = None
+
+
+@dataclass
+class PlatformOptions:
+    width: int
+    textColor: graphics.Color
+    texthighlightColor: graphics.Color
+    normalFont: graphics.Font
+    smallFont: graphics.Font
+    normalsmalloffset: int
 
 
 class StandardDepartureLine:
@@ -289,8 +294,8 @@ class StandardDepartureLine:
             linenumopt: LinenumOptions,
             countdownopt: CountdownOptions,
             platformopt: Optional[PlatformOptions],
-            realtimecolors: RealtimeColors,
-            fixedy: Optional[int] = None):
+            fixedy: Optional[int] = None,
+            cancelled_blink_text: Optional[str] = "entfällt"):
         self.lx = lx
         self.rx = rx
         self.font = font
@@ -302,12 +307,12 @@ class StandardDepartureLine:
         self.linenumopt = linenumopt
         self.countdownopt = countdownopt
         self.platformopt = platformopt
-        self.realtimecolors = realtimecolors
         self.fixedy = fixedy
+        self.cancelled_blink_text = cancelled_blink_text
 
         self.dep: Optional[Departure] = None
         self.dep_tz: Optional[timezone] = None
-        self.rtcolor: graphics.Color = self.realtimecolors.no_realtime
+        self.rtcolor: graphics.Color = self.countdownopt.realtime_colors.no_realtime
         self.dirtextcolor: graphics.Color = self.textColor
 
         self.linenum_min: int
@@ -340,19 +345,20 @@ class StandardDepartureLine:
 
         self.dep_tz = self.dep.deptime.tzinfo
 
+        rtc = self.countdownopt.realtime_colors
         if self.dep.realtime:
             if self.dep.cancelled:
-                self.rtcolor = self.realtimecolors.cancelled
-            if self.dep.delay >= self.countdownopt.mindelay:
-                self.rtcolor = self.realtimecolors.high_delay
+                self.rtcolor = rtc.cancelled
+            elif self.dep.delay >= self.countdownopt.mindelay:
+                self.rtcolor = rtc.high_delay
             elif self.dep.delay >= self.countdownopt.minslightdelay:
-                self.rtcolor = self.realtimecolors.slight_delay
+                self.rtcolor = rtc.slight_delay
             elif self.dep.delay <= self.countdownopt.minnegativedelay:
-                self.rtcolor = self.realtimecolors.negative_delay
+                self.rtcolor = rtc.negative_delay
             else:
-                self.rtcolor = self.realtimecolors.no_delay
+                self.rtcolor = rtc.no_delay
         else:
-            self.rtcolor = self.realtimecolors.no_realtime
+            self.rtcolor = rtc.no_realtime
 
     def render(self, canvas: FrameCanvas, texty: int, blinkon: bool) -> None:
         if self.dep is None:
@@ -382,7 +388,7 @@ class StandardDepartureLine:
             pattern=self.linenumopt.pattern,
             alt_retext_1=self.linenumopt.retext_1,
             alt_retext_2=self.linenumopt.retext_2)
-        linenum_xpos = self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width)
+        linenum_xpos = self.linenum_min if self.linenumopt.align_left else (self.linenum_max - linenum_px + (linenum_px == self.linenumopt.width))
 
         graphics.DrawText(canvas, linenum_font, linenum_xpos, texty-linenum_verticaloffset, linenum_color, linenum_str)
 
@@ -396,25 +402,33 @@ class StandardDepartureLine:
             dep_countdown_secs: int = (self.dep.deptime - datetime.now(self.dep_tz)).total_seconds()
             dep_countdown = 0 if (-75 < dep_countdown_secs < 30) else int((dep_countdown_secs + 60) // 60)
 
-        if self.dep.cancelled:
+        if self.dep.cancelled and self.countdownopt.cancelled_symbol is not None:
             drawppm_bottomright(canvas, self.countdownopt.cancelled_symbol, self.deptime_x_max, texty, transp=True)
             timeoffset += self.countdownopt.cancelled_symbol.size[0]
-        elif dep_countdown > self.countdownopt.maxmin:
+        elif dep_countdown > self.countdownopt.maxmin or self.dep.cancelled:
             timestr = clockstr_tt(self.dep.deptime.timetuple())
             timestrpx = textpx(self.countdownopt.font, timestr)
             graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx + 1, texty, self.rtcolor, timestr)
             timeoffset += timestrpx
-        elif blinkon and dep_countdown == 0 and self.countdownopt.zerobus:
-            drawppm_bottomright(canvas, self.countdownopt.mot_coloured_symbols[self.dep.mot][self.rtcolor], self.deptime_x_max, texty, transp=True)
-            timeoffset += self.countdownopt.mot_symbols[self.dep.mot].size[0]
-        elif dep_countdown or blinkon:
-            timestr = str(dep_countdown)
+        elif not dep_countdown and (self.countdownopt.zerobus or self.countdownopt.zerosofort):
+            if blinkon or not self.countdownopt.blink:
+                if self.countdownopt.zerobus:
+                    drawppm_bottomright(canvas, self.countdownopt.mot_coloured_symbols[self.dep.mot][self.rtcolor], self.deptime_x_max, texty, transp=True)
+                    timeoffset += self.countdownopt.mot_symbols[self.dep.mot].size[0]
+                elif self.countdownopt.zerosofort:
+                    timestr = " sofort"
+                    timestrpx = textpx(self.countdownopt.font, timestr)
+                    graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx + 1, texty, self.rtcolor, timestr)
+                    timeoffset += timestrpx
+        elif dep_countdown or blinkon or not self.countdownopt.blink:  # mehr als 0, oder es ist 0 und kein zerobus/zerosofort
+            min_text = self.countdownopt.min_text and not self.countdownopt.in_min_text
+            timestr = (f" in {dep_countdown} min" if dep_countdown >= 0 else f" vor {abs(dep_countdown)} min") if self.countdownopt.in_min_text else str(dep_countdown)
             timestrpx = textpx(self.countdownopt.font, timestr)
-            graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx - ((self.countdownopt.min_symbol.size[0]-1+self.countdownopt.minoffset) if self.countdownopt.mintext else -1), texty, self.rtcolor, timestr)
+            graphics.DrawText(canvas, self.countdownopt.font, self.deptime_x_max - timestrpx - ((self.countdownopt.min_symbol.size[0]-1+self.countdownopt.min_text_offset) if min_text else -1), texty, self.rtcolor, timestr)
             timeoffset += timestrpx
-            if self.countdownopt.mintext:
+            if min_text:
                 drawppm_bottomright(canvas, self.countdownopt.min_coloured_symbols[self.rtcolor], self.deptime_x_max, texty, transp=True)
-                timeoffset += self.countdownopt.min_symbol.size[0] + self.countdownopt.minoffset
+                timeoffset += self.countdownopt.min_symbol.size[0] + self.countdownopt.min_text_offset
 
         if self.platformopt is not None and self.platformopt.width > 0 and self.dep.platformno:
             platprefix = self.dep.platformtype or ("Gl." if self.dep.mot in trainMOT else "Bstg.")
@@ -433,9 +447,10 @@ class StandardDepartureLine:
             graphics.DrawText(canvas, platform_font, platform_xpos, texty-platform_verticaloffset, platform_color, platform_str)
 
         directionpixel -= (timeoffset + self.space_direction_countdown*bool(timeoffset))
-        directionlimit = propscroll(self.font, self.dep.disp_direction, self.direction_xpos, self.direction_xpos+directionpixel)
+        dirtext = self.cancelled_blink_text if (self.cancelled_blink_text and self.dep.cancelled and blinkon) else self.dep.disp_direction
+        directionlimit = propscroll(self.font, dirtext, self.direction_xpos, self.direction_xpos+directionpixel)
         dirtextcolor = self.texthighlightColor if self.dep.earlytermination else self.textColor
-        graphics.DrawText(canvas, self.font, self.direction_xpos, texty, dirtextcolor, self.dep.disp_direction[:directionlimit])
+        graphics.DrawText(canvas, self.font, self.direction_xpos, texty, dirtextcolor, dirtext[:directionlimit])
 
 
 # beides ohne extra_spacing
