@@ -434,7 +434,7 @@ class StandardDepartureLine:
             platprefix = self.dep.platformtype or ("Gl." if self.dep.mot in trainMOT else "Bstg.")
             full_str = platprefix + str(self.dep.platformno)
             short_str = str(self.dep.platformno)
-            if any((hit := _) in short_str for _ in {"Gleis", "Gl.", "Bstg", "Bussteig", "Bahnsteig", "Steig", "Platform", "Pl."}):
+            if any((hit := _) in short_str for _ in {"Gleis", "Gl.", "Bstg.", "Bstg", "Bussteig", "Bahnsteig", "Steig", "Platform", "Pl."}):
                 full_str = short_str
                 short_str = short_str.replace(hit, "").strip()
             platform_font, platform_str, platpx, platform_verticaloffset = fittext(
