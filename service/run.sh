@@ -42,6 +42,9 @@ emilienplatz3)
 hagenhbfefa)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
   ;;
+systemexample)
+  ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --config-system-url $config_system_url --config-system-id $config_system_id --config-system-key $config_system_key
+  ;;
 hagenhbf)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --ibnr "08000142"
   ;;
