@@ -31,7 +31,7 @@ fi
 echo "selection: $selection"
 case $selection in
 moers)
-  python3.9 dm_tomatrixled.py -b$brightness -e -l8 -f8 --update-steps 330 --led-parallel 3 --led-slowdown-gpio 2 -t --test-ext "https://d3d9.xyz:8008/data?id=moers-rathaus" -s de:05170:36298 --place-string "Moers " --keep-place-string "Moers Bahnhof" --dest-replacement "Duisburg %DU-" --dest-replacement "Rheinhausen%Rheinhsn." --dest-replacement "DU-Hbf Osteingang%Duisburg Hbf" --dest-replacement "Verteilerkr.%Vkr." --dest-replacement "Messe Niederrhein%Messe NI" --dest-replacement "Krefeld Oppum%KR-Oppum" --dest-replacement "Kaldenhausen%Kaldenhsn." --dest-replacement "Neukirchen-Vl.%Nk.-Vl."
+  python3.9 dm_tomatrixled.py -b$brightness -e -l8 -f8 --update-steps 330 --led-parallel 3 --led-slowdown-gpio 2 -t --min-slightdelay 3 --test-ext "https://d3d9.xyz:8008/data?id=moers-rathaus" -s de:05170:36298 --place-string "Moers " --keep-place-string "Moers Bahnhof" --dest-replacement "Duisburg %DU-" --dest-replacement "Rheinhausen%Rheinhsn." --dest-replacement "DU-Hbf Osteingang%Duisburg Hbf" --dest-replacement "Verteilerkr.%Vkr." --dest-replacement "Messe Niederrhein%Messe NI" --dest-replacement "Krefeld Oppum%KR-Oppum" --dest-replacement "Kaldenhausen%Kaldenhsn." --dest-replacement "Neukirchen-Vl.%Nk.-Vl."
   ;;
 feuerwache)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --test-ext https://d3d9.xyz:8008/data?id=feuerwache --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
