@@ -70,10 +70,10 @@ parser.add_argument("--ignore-infoid", action="append", help="EFA: ignore this '
 parser.add_argument("--no-rt-msg", action="store", help="Show warning if no realtime departures are returned, value of this parameter is the maximum countdown up to which one would usually expect a RT departure. Default: 20", default=20, type=int)
 parser.add_argument("--show-start", action="store_true", help="Show startscreen with IFOPT and IP")
 parser.add_argument("--disable-mintext", action="store_false", help="Don't show \"min\" after the countdown & a larger bus")
-parser.add_argument("--min-delay", action="store", help="Minimum minutes of delay for the time to be shown in red color. 1-99. Default: 4", default=4, choices=range(1, 100), type=int)
-parser.add_argument("--min-slightdelay", action="store", help="Minimum minutes of delay for the time to be shown in yellow color (set to same as --min-delay to ignore). 1-99. Default: 2", default=2, choices=range(1, 100), type=int)
-parser.add_argument("--min-negativedelay", action="store", help="Minimum minutes of negative delay for the time to be shown in a special color. -99..-1. Default: -1", default=-1, choices=range(-99, 0), type=int)
-parser.add_argument("--max-minutes", action="store", help="Maximum countdown minutes to show time in minutes instead of absolute time. -1-99. Default: 59", default=59, choices=range(-1, 100), type=int)
+parser.add_argument("--min-delay", action="store", help="Minimum minutes of delay for the time to be shown in red color. >= 1. Default: 9999", default=9999, type=int)
+parser.add_argument("--min-slightdelay", action="store", help="Minimum minutes of delay for the time to be shown in yellow color (set to same as --min-delay to ignore). >= 1. Default: 2", default=2, type=int)
+parser.add_argument("--min-negativedelay", action="store", help="Minimum minutes of negative delay for the time to be shown in a special color. <= -1. Default: -1", default=-1, type=int)
+parser.add_argument("--max-minutes", action="store", help="Maximum countdown minutes to show time in minutes instead of absolute time. >= -1. Default: 59", default=59, type=int)
 parser.add_argument("--disable-blink", action="store_false", help="Disable blinking of bus/zero when countdown is 0")
 parser.add_argument("--stop-name", action="store", help="Override header (-t) stop name returned by the API. Default: none", default="", type=str)
 parser.add_argument("--show-progress", action="store_true", help="Show progress bar at the bottom")
@@ -114,6 +114,14 @@ parser.add_argument("--led-row-addr-type", action="store", help="0 = default; 1=
 parser.add_argument("--led-multiplexing", action="store", help="Multiplexing type: 0=direct; 1=strip; 2=checker; 3=spiral; 4=ZStripe; 5=ZnMirrorZStripe; 6=coreman; 7=Kaler2Scan; 8=ZStripeUneven (Default: 0)", default=0, type=int)
 
 args = parser.parse_args()
+if args.min_delay < 1:
+    parser.error("--min-delay must be >= 1")
+if args.min_slightdelay < 1:
+    parser.error("--min-slightdelay must be >= 1")
+if args.min_negativedelay > -1:
+    parser.error("--min-negativedelay must be <= -1")
+if args.max_minutes < -1:
+    parser.error("--max-minutes must be >= -1")
 
 options = RGBMatrixOptions()
 if args.led_gpio_mapping is not None:
