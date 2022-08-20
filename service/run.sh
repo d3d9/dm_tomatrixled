@@ -40,13 +40,13 @@ emilienplatz)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST
   ;;
 emilienplatz3)
-  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er3 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST -w15
   ;;
 hagenhbfefa)
-  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330
   ;;
 hagenhbf)
-  echo $hagenreplace | ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --ibnr "08000142"
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2007 -b$brightness -er1 -l8 -f8 --update-steps 330 --ibnr "08000142"
   ;;
 essenhbfefa)
   ./dm_tomatrixled.py -s de:05113:9289 -b$brightness -er1 -l8 -f8 --update-steps 330 --place-string "Essen " --place-string "E-"

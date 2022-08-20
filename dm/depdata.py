@@ -163,7 +163,7 @@ def readefaxml(root: ET.Element, tz: timezone,
         if (not cancelled) and _earlytermv:
             direction_actual = _earlytermv
             earlytermination = True
-        # Beobachtungen bzgl. Steigänderung:
+        # Beobachtungen bzgl. Steigänderung (könnten in 2022 aber schon veraltet sein!!)
         # genAttrElem mit name platformChange und value changed
         # platform bei itdDeparture entspricht originaler, platformName der neuen..
         # haben aber eigentlich unterschiedliche Bedeutungen
@@ -221,7 +221,7 @@ def readefaxml(root: ET.Element, tz: timezone,
                               message_priority=message_priority,
                               coursesummary=servingline.findtext('itdRouteDescText'),
                               mot=mot,
-                              platformno=dep.get('platform'),
+                              platformno=dep.get('platformName', "") or dep.get('platform'),
                               platformtype=dep.get('pointType', ""),
                               stopname=(dep.get('nameWO') or stopname),
                               stopid=dep.get('gid'),
