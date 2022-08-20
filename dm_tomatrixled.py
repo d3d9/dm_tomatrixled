@@ -2,38 +2,34 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from argparse import ArgumentParser
+import atexit
 from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from requests import get
+from requests import get, post
 from itertools import cycle
+from json import dumps
 from json import load as json_load
-# from subprocess import check_output
-from sys import stderr
+from subprocess import check_output
+from sys import stderr, stdout
+from tempfile import NamedTemporaryFile
 from time import localtime, sleep  # , monotonic
 from typing import List, Iterable, Tuple, Optional, NoReturn, Union, Callable, Sequence
 
+from ansi2html import Ansi2HTMLConverter
 from loguru import logger
 from PIL import Image
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 from rgbmatrix.core import FrameCanvas
 
 import dm
+from dm.actions import check_action
 from dm.drawstuff import clockstr_tt, colorppm
 from dm.areas import rightbar_wide, rightbar_tmp, rightbar_verticalclock, startscreen
 from dm.lines import MultisymbolScrollline, SimpleScrollline, LinenumOptions, CountdownOptions, PlatformOptions, RealtimeColors, StandardDepartureLine, textpx
 from dm.depdata import CallableWithKwargs, DataSource, Departure, Meldung, MOT, trainTMOTefa, trainMOT, linenumpattern, GetdepsEndAll, getdeps, getefadeps, getfptfrestdeps, getextmsgdata, getlocalmsg, getlocaldeps, getrssfeed, getnina, getkvbmonitor
 
-
-### Logging
-
-datafilelog = False
-logger.remove(0)
-logger.add(sink=stderr, level="TRACE", backtrace=False, enqueue=True)
-logger.add(sink="./log/log.txt", level="DEBUG", backtrace=False, enqueue=True)
-if datafilelog:
-    logger.add(sink="./log/data.txt", level="TRACE", backtrace=False, enqueue=True, compression="gz", rotation="50 MB", filter=lambda r: r["level"] == "TRACE")
 
 ### Arguments
 
@@ -43,6 +39,10 @@ parser.add_argument("--ibnr", action="store", help="IBNR. If ifopt is also set, 
 parser.add_argument("--bvg-id", action="store", help="BVG station id (temporary parameter; no combination with ibnr/ifopt.)", default="", type=str)
 parser.add_argument("--bvg-direction", action="store", help="BVG departures in direction (temporary parameter)", default="", type=str)
 parser.add_argument("--hst-colors", action="store_true", help="Use HST (Hagen) Netz 2020 colors (temporary parameter)")
+
+parser.add_argument("--config-system-url", action="store", help="URL of optional configuration system see dfi.d3d9.xyz", default="", type=str)
+parser.add_argument("--config-system-id", action="store", help="ID of Anzeigesystem object", default=0, type=int)
+parser.add_argument("--config-system-key", action="store", help="API key of Anzeigesystem object", default="", type=str)
 parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
 parser.add_argument("--save-msg-path", action="store", help="file path to store/load test-ext-message as a backup option", default="./log/saved_msg.json", type=str)
 parser.add_argument("--local-deps", action="store", help="file path to local csv with departures, cmdline option only applied if EFA (not DB/BVG/..) is used", default="", type=str)
@@ -122,6 +122,77 @@ if args.min_negativedelay > -1:
     parser.error("--min-negativedelay must be <= -1")
 if args.max_minutes < -1:
     parser.error("--max-minutes must be >= -1")
+
+CONFIG_SYSTEM = False
+SYSTEM_URL = args.config_system_url
+SYSTEM_ID = args.config_system_id
+SYSTEM_KEY = args.config_system_key
+_required_system_args = (SYSTEM_URL, SYSTEM_ID, SYSTEM_KEY)
+if any(_required_system_args) and not all(_required_system_args):
+    parser.error("--config-system-url, --config-system-id, --config-system-key are all required to connect a system")
+else:
+    CONFIG_SYSTEM = all(_required_system_args)
+
+_ansi_html = Ansi2HTMLConverter(inline=True)
+
+def heartbeat_request(url, dfi_id, key, log=[], get_system_data=tuple(), loaded_data={}, going_offline=False):
+    # global config_version
+    payload = {"action": "dfi_heartbeat", "id": dfi_id, "key": key} #  , "config_version": dm.config.version}
+    if log:
+        payload["log"] = _ansi_html.convert("".join(log), full=False)
+    if get_system_data:
+        system_data = {}
+        command = lambda input: check_output(input, shell=True).decode(stdout.encoding).strip()
+        for key in get_system_data:
+            value = None
+            if key == "temperature_cpu":
+                value = command("vcgencmd measure_temp | sed -e 's/temp=//'")
+            elif key == "uptime":
+                value = command("uptime -p | sed -e 's/up //'")
+            if value is not None:
+                system_data[key] = str(value)
+        payload["system_data"] = dumps(system_data)
+    if loaded_data:
+        payload["loaded_data"] = dumps(loaded_data)
+    if going_offline:
+        payload["going_offline"] = 1
+    r = post(url, data=payload)
+    try:
+        r.raise_for_status()
+        response = r.json()
+        return response
+    except Exception as e:
+        logger.exception(f"{r.content}")
+
+
+### Logging
+
+datafilelog = False
+logger.remove(0)
+logger.add(sink=stderr, level="TRACE", backtrace=False, enqueue=True)
+logger.add(sink="./log/log.txt", level="DEBUG", backtrace=False, enqueue=True)
+if datafilelog:
+    logger.add(sink="./log/data.txt", level="TRACE", backtrace=False, enqueue=True, compression="gz", rotation="50 MB", filter=lambda r: r["level"] == "TRACE")
+
+limited_log_limit = 20
+limited_log_level = "TRACE" # "INFO"
+limited_log = []
+def add_limited_log(msg):
+    global limited_log, limited_log_limit
+    limited_log.append(msg)
+    #limited_log = limited_log[-limited_log_limit:]
+    if len(limited_log) > limited_log_limit:
+        limited_log.pop(0)
+logger.add(sink=add_limited_log, level=limited_log_level, colorize=True, backtrace=False, enqueue=True)
+
+@atexit.register
+def heartbeat_going_offline():
+    global limited_log
+    if not CONFIG_SYSTEM:
+        return
+    logger.complete()
+    heartbeat_request(SYSTEM_URL, SYSTEM_ID, SYSTEM_KEY, log=limited_log, going_offline=True)
+
 
 options = RGBMatrixOptions()
 if args.led_gpio_mapping is not None:
@@ -445,7 +516,7 @@ class Display:
             clockColor: graphics.Color,
             progressColor: graphics.Color,
             bgColor_t: Optional[Tuple[int, int, int]],
-            step: int,
+            update_step: int,
             depcolumns: Sequence[Tuple[int, int]],
             depcolumns_zigzag: bool,
             deplines: List[StandardDepartureLine],
@@ -467,7 +538,7 @@ class Display:
         self.clockColor = clockColor
         self.progressColor = progressColor
         self.bgColor_t = bgColor_t
-        self.step = step
+        self.update_step = update_step
         self.depcolumns = depcolumns
         self.depcolumns_zigzag = depcolumns_zigzag
         self.deplines = deplines
@@ -617,6 +688,16 @@ class Display:
 
         self.pe_f = None
         self.joined = True
+        self.heartbeat_step = self.update_step
+        self.pe_hb = None
+        self.heartbeat_joined = True
+        self.prev_limited_log = []
+        self.heartbeat_detail_skip = 6
+        self.heartbeat_detail_skip_remaining = 0
+        self.action_step_pending = int(self.update_step / 2)
+        self.action_pending = False
+        self.pe_a = None
+        self.action_joined = True
 
     def add_datasource(self, datasource: DataSource) -> None:
         if datasource.name in {ds.name for ds in self.datasources.values()}:
@@ -626,8 +707,56 @@ class Display:
     def additional_update(self, nowtime: datetime.datetime = datetime.now(tz), di: int = 0, dep: Optional[Departure] = None) -> None:
         pass
 
+    def action(self, action=None):
+        if self.action_joined:
+            if action is not None or (self.action_pending and not self.i % self.action_step_pending):
+                self.action_joined = False
+                self.pe_a = self.pe.submit(check_action, action if action is not None else self.action_pending, SYSTEM_URL, SYSTEM_ID, SYSTEM_KEY)
+        elif self.pe_a.done():
+            try:
+                self.action_pending = self.pe_a.result()
+            except Exception as e:
+                logger.exception("exception from check_action")
+            else:
+                pass
+            finally:
+                self.action_joined = True
+
+    def heartbeat(self):
+        global limited_log
+        if self.heartbeat_joined and not self.i % self.heartbeat_step:
+            self.heartbeat_joined = False
+            hb_args = {}
+            if self.prev_limited_log != limited_log:
+                hb_args["log"] = limited_log
+                self.prev_limited_log = limited_log.copy()
+            if not self.heartbeat_detail_skip_remaining:
+                hb_args["get_system_data"] = ("temperature_cpu", "uptime")
+                # hb_args["loaded_data"] = ...
+                self.heartbeat_detail_skip_remaining = self.heartbeat_detail_skip
+            else:
+                self.heartbeat_detail_skip_remaining -= 1
+            self.pe_hb = self.pe.submit(
+                heartbeat_request,
+                url=SYSTEM_URL,
+                dfi_id=SYSTEM_ID,
+                key=SYSTEM_KEY,
+                **hb_args)
+        if not self.heartbeat_joined and self.pe_hb.done():
+            try:
+                response = self.pe_hb.result()
+                action = response.get('action')
+            except Exception as e:
+                logger.exception("exception from heartbeat")
+            else:
+                if action is False or self.action_pending != action:
+                    # hier self.action nur dann aufrufen, wenn "sich was getan hat", ansonsten wird es bei action_pending mit dem action_step_pending regelmäßig aufgerufen
+                    self.action(action)
+            finally:
+                self.heartbeat_joined = True
+
     def update(self) -> bool:
-        if self.joined and not self.i % self.step:
+        if self.joined and not self.i % self.update_step:
             self.joined = False
             self.pe_f = self.pe.submit(
                 getdeps,
@@ -735,10 +864,12 @@ class Display:
 
         if progress:
             x_pixels = self.x_max - self.x_min + 1
-            x_progress = int(x_pixels-1 - ((self.i % self.step)*((x_pixels-1)/self.step)))
+            x_progress = int(x_pixels-1 - ((self.i % self.update_step)*((x_pixels-1)/self.update_step)))
             graphics.DrawLine(canvas, self.x_min, self.y_max, self.x_min+x_progress, self.y_max, self.progressColor)
 
+    def step(self) -> None:
         self.i += 1
+
 
 class LocalColorDisplay(Display):
     @staticmethod
@@ -880,7 +1011,7 @@ def loop(matrix: RGBMatrix, pe: Executor, sleep_interval: int) -> NoReturn:
         clockColor=graytextColor,
         progressColor=barColor,
         bgColor_t=matrixbgColor_t,
-        step=args.update_steps,
+        update_step=args.update_steps,
         depcolumns=depcolumns,
         depcolumns_zigzag=args.column_zigzag,
         deplines=deplines,
@@ -898,14 +1029,18 @@ def loop(matrix: RGBMatrix, pe: Executor, sleep_interval: int) -> NoReturn:
 
         if rightbar:
             # x_min, y_min usw. fehlen
-            rightbarfn(canvas, display.x_max+1+spaceDr, 0, rightbarwidth, rightbarfont, rightbarcolor, display.i, display.step, localtime(), *rightbarargs)
+            rightbarfn(canvas, display.x_max+1+spaceDr, 0, rightbarwidth, rightbarfont, rightbarcolor, display.i, display.update_step, localtime(), *rightbarargs)
 
         display.update()
         display.render(canvas)
+        if CONFIG_SYSTEM:
+            display.heartbeat()
+        display.action()
 
         if writeppm:
             canvas.ppm(ppmfile)
 
+        display.step()
         canvas = matrix.SwapOnVSync(canvas)
 
         '''
@@ -933,7 +1068,7 @@ if __name__ == "__main__":
         sleep(5)
     while True:
         try:
-            with ProcessPoolExecutor(max_workers=1) as ppe:
+            with ProcessPoolExecutor(max_workers=3) as ppe:
                 loop(matrix, ppe, args.sleep_interval)
         except KeyboardInterrupt:
             break

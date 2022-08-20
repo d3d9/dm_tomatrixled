@@ -107,11 +107,12 @@ __Vorgehensweise__
 1. Raspbian Lite auf dem Pi installieren, (empfohlen:) ssh aktivieren (leere Datei "ssh" in der Bootpartition erstellen) und verbinden.
 2. apt-get update und upgrade durchführen, dann grundsätzliche Konfiguration mit raspi-config vornehmen (z. B. WLAN einrichten, Interfaces ausschalten, ...), ggf. weiteres wie z. B. tmpfs unter /tmp einrichten, isolcpus=3 in /boot/cmdline.txt ergänzen, dtparam=audio=off in /boot/config.txt ergänzen, mehr siehe oben verlinktes Readme. Danach neustarten.
 3. Sicherstellen, dass Python 3.8 oder höher installiert ist
-4. ```apt-get install git libjpeg9-dev libopenjp2-7 python3-pip```, ```pip3 install loguru requests Pillow webcolors```
+4. ```apt-get install git libjpeg9-dev libopenjp2-7 python3-pip```, ```pip3 install loguru requests Pillow webcolors ansi2html pyyaml```
 5. ```git clone```: [d3d9/rpi-rgb-led-matrix](https://github.com/d3d9/rpi-rgb-led-matrix) sowie [d3d9/dm_tomatrixled](https://github.com/d3d9/dm_tomatrixled) (hier).
 6. Im rpi-rgb-led-matrix-Verzeichnis: ```sudo make -j4 install-python PYTHON="$(which python3.9)"``` (Python-Versionsnummer durch die relevante austauschen)
 7. Im dm_tomatrixled-Verzeichnis: siehe Beispiele, das Programm (als Root) ausführen, ggf. Optionen, insbesondere bzgl. der Matrix, anpassen. Bei Darstellungsproblemen Hinweise unter [hzeller/rpi-rgb-led-matrix/README.md](https://github.com/hzeller/rpi-rgb-led-matrix/blob/master/README.md) beachten. Weitere Probleme gerne hier melden.
 
 ### Service
 Im Verzeichnis [service/](service/) befinden sich Dateien, mit denen man das Programm beim Systemstart automatisch ausführen lassen kann. Es kann je nach Bedarf angepasst werden.    
-Mit z. B. ```sudo systemctl enable /home/pi/dm_tomatrixled/service/matrix.service``` lässt es sich direkt für den Systemstart aktivieren.
+Mit z. B. ```sudo systemctl enable /home/pi/dm_tomatrixled/service/matrix.service``` lässt es sich direkt für den Systemstart aktivieren.  
+Vorher sollte die Datei ```run.env.example``` in eine Datei ```run.env``` kopiert werden.
