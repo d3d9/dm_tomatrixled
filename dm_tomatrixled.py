@@ -106,6 +106,7 @@ parser.add_argument("--led-gpio-mapping", help="Hardware Mapping: regular, adafr
 parser.add_argument("--led-scan-mode", action="store", help="Progressive or interlaced scan. 0 Progressive, 1 Interlaced (default)", default=1, choices=range(2), type=int)
 parser.add_argument("--led-pwm-lsb-nanoseconds", action="store", help="Base time-unit for the on-time in the lowest significant bit in nanoseconds. Default: 130", default=130, type=int)
 parser.add_argument("--led-show-refresh", action="store_true", help="Shows the current refresh rate of the LED panel")
+parser.add_argument("--led-limit-refresh", action="store", help="Limit refresh rate to this frequency in Hz. Useful to keep a constant refresh rate on loaded system. 0=no limit. Default: 0", default=0, type=int)
 parser.add_argument("--led-slowdown-gpio", action="store", help="Slow down writing to GPIO. Range: 0..4. Default: 1", default=1, type=int)
 parser.add_argument("--led-no-hardware-pulse", action="store", help="Don't use hardware pin-pulse generation")
 parser.add_argument("--led-rgb-sequence", action="store", help="Switch if your matrix has led colors swapped. Default: RGB", default="RGB", type=str)
@@ -210,6 +211,7 @@ options.led_rgb_sequence = args.led_rgb_sequence
 options.pixel_mapper_config = args.led_pixel_mapper
 if args.led_show_refresh:
     options.show_refresh_rate = 1
+options.limit_refresh_rate_hz = args.led_limit_refresh
 if args.led_slowdown_gpio is not None:
     options.gpio_slowdown = args.led_slowdown_gpio
 if args.led_no_hardware_pulse:
