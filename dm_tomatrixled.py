@@ -67,6 +67,8 @@ parser.add_argument("--keep-place-string-for", action="append", help="Do not rem
 parser.add_argument("--dest-replacement", action="append", help="Strings to be replaced in the destination texts, can be used for abbreviations. Use %% as separator. Format example: \"Hauptbahnhof%%Hbf.\". Can be used multiple times.", default=[], type=str, dest="dest_replacements")
 parser.add_argument("--ignore-infotype", action="append", help="EFA: ignore this 'infoType' (can be used multiple times)", default=[], type=str)
 parser.add_argument("--ignore-infoid", action="append", help="EFA: ignore this 'infoID' (can be used multiple times)", default=[], type=str)
+parser.add_argument("--itdNoTrain-remove-dep", action="append", help="EFA: ignore departures with specific text as substring of itdNoTrain content (can be used multiple times)", default=[], type=str)
+parser.add_argument("--itdNoTrain-remove-msg", action="append", help="EFA: do not output itdNoTrain content as message if specific text is substring of itdNoTrain content (can be used multiple times)", default=[], type=str)
 parser.add_argument("--no-rt-msg", action="store", help="Show warning if no realtime departures are returned, value of this parameter is the maximum countdown up to which one would usually expect a RT departure. Default: 20", default=20, type=int)
 parser.add_argument("--show-start", action="store_true", help="Show startscreen with IFOPT and IP")
 parser.add_argument("--disable-mintext", action="store_false", help="Don't show \"min\" after the countdown & a larger bus")
@@ -474,6 +476,9 @@ ignore_infoTypes = set(args.ignore_infotype) if args.ignore_infotype else None
 # ignore_infoIDs = {"41354_HST", "28748_HST", "45828_HST"}
 ignore_infoIDs = set(args.ignore_infoid) if args.ignore_infoid else None
 
+itdNoTrain_remove_msg = set(args.itdNoTrain_remove_msg) if args.itdNoTrain_remove_msg else None
+itdNoTrain_remove_dep = set(args.itdNoTrain_remove_dep) if args.itdNoTrain_remove_dep else None
+
 content_for_short_titles = True
 
 dbrestserver = 'http://d3d9.xyz:3000'
@@ -586,6 +591,8 @@ class Display:
             'tz': tz,
             'ignore_infoTypes': ignore_infoTypes,
             'ignore_infoIDs': ignore_infoIDs,
+            'itdNoTrain_remove_msg': itdNoTrain_remove_msg,
+            'itdNoTrain_remove_dep': itdNoTrain_remove_dep,
             'content_for_short_titles': content_for_short_titles,
             'message_priority': None # ...
         }
