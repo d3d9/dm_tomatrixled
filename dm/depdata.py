@@ -522,6 +522,17 @@ def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol
     return [], messages, []
 
 
+def _json_messages(json_msg: List[Dict[str, Any]]) -> List[Meldung]:
+    # priority not correctly implemented for now
+    messages = [
+        Meldung(
+            symbol=msg.get("symbol"),
+            text=msg.get("text"),
+            color=msg.get("color"),
+            priority={None: None, "scroll": 5, "switch": 15, "perma" : 30}.get(msg.get("priority"))
+        ) for msg in json_msg]
+    return messages
+
 def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[str] = None) -> type_depmsgdata:
     messages: List[Meldung] = []
     data: type_data = {}
@@ -532,32 +543,9 @@ def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[
         r.raise_for_status()
         try:
             requestdata = r.json()
-            # example:
-            # {
-            #     "messages": [
-            #                     {
-            #                         "symbol": "info",
-            #                         "text": "Testinformation",
-            #                         "color": undefined
-            #                     },
-            #                     {
-            #                         "symbol": "ad",
-            #                         "text": "Testwerbung",
-            #                         "color": "#00FFFF"
-            #                     }
-            #                 ],
-            #     "config": {
-            #                   "brightness": 15
-            #               },
-            #     "command": "shutdown 19:30"
-            # }
-            # ("command" sollte nach der "auswertung" wieder leer gesetzt werden..)
-            # todo: mit dem GET z. B. logdaten mitsenden; auf dem Server irgendwas laufen haben
-            # , was mit https+basicauth+sqlite+weboberflaeche oderso die konfiguration/beobachtung ermoeglicht
-            # + guten weg finden, run.env/run.sh anzupassen, langfristig
-            _json_msg = requestdata.get("messages")
+            _json_msg = requestdata.get("texts")
             if _json_msg is not None:
-                messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
+                messages = _json_messages(_json_msg)
             if save_msg_path:
                 _saved = ""
                 _dump = json_dumps(_json_msg or "[]")
@@ -569,41 +557,13 @@ def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[
                 if _saved != _dump:
                     with open(save_msg_path, 'w') as f:
                        f.write(_dump)
-            _json_config = requestdata.get("config")
-            if _json_config is not None:
-                data = _json_config
-            command = requestdata.get("command")
-            if command:
-                if command.startswith("shutdown "):
-                    _s = command.split(" ")
-                    if len(_s) == 2:
-                        logger.info(f"calling {_s}")
-                        call(_s)
-                    else:
-                        logger.warning(f"unknown shutdown command: {_s}")
-                elif command == "rebootnow":
-                    logger.info("rebooting")
-                    call(["reboot"])
-                elif command == "reload":
-                    logger.info("requested reload")
-                    if call(["systemctl", "is-active", "matrix"]) == 0:
-                        call(["systemctl", "restart", "matrix"])
-                    else:
-                        call(["systemctl", "start", "matrix"])
-                        raise KeyboardInterrupt
-                elif command == "gitpull":
-                    _e = call(["sudo", "-u", "pi", "git", "pull"])
-                    if _e == 0:
-                        logger.success("git pull")
-                    else:
-                        logger.warning(f"git pull failed with exit code {_e}")
-                else:
-                    logger.warning(f"unknown command: {command}")
+            # _json_config = requestdata.get("config")
+            # if _json_config is not None:
+            #     data = _json_config
         except Exception:
             logger.debug(f"request data:\n{r.content}")
             raise
     return [], messages, data
-
 
 def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
     messages: List[Meldung] = []
@@ -615,7 +575,7 @@ def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
         pass
     else:
         _json_msg = json_loads(_saved)
-        messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
+        messages = _json_messages(_json_msg)
     return [], messages, {}
 
 

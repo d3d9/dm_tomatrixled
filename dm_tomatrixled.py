@@ -43,8 +43,8 @@ parser.add_argument("--hst-colors", action="store_true", help="Use HST (Hagen) N
 parser.add_argument("--config-system-url", action="store", help="URL of optional configuration system see dfi.d3d9.xyz", default="", type=str)
 parser.add_argument("--config-system-id", action="store", help="ID of Anzeigesystem object", default=0, type=int)
 parser.add_argument("--config-system-key", action="store", help="API key of Anzeigesystem object", default="", type=str)
-parser.add_argument("--test-ext", action="store", help="URL to try to get data like messages, brightness from an external service (test) (see dm_depdata.py)", default="", type=str)
-parser.add_argument("--save-msg-path", action="store", help="file path to store/load test-ext-message as a backup option", default="./log/saved_msg.json", type=str)
+parser.add_argument("--ext-data-url", action="store", help="URL to dfi_data endpoint of optional configuration system see dfi.d3d9.xyz", default="", type=str)
+parser.add_argument("--save-msg-path", action="store", help="file path to store/load texts from ext-data as a backup option", default="./log/saved_msg.json", type=str)
 parser.add_argument("--local-deps", action="store", help="file path to local csv with departures, cmdline option only applied if EFA (not DB/BVG/..) is used", default="", type=str)
 
 parser.add_argument("-e", "--enable-efamessages", action="store_true", help="Enable line messages. (still overwritten by -m option)")
@@ -457,7 +457,7 @@ call_args_retries_local = 0
 efaserver = 'https://openservice.vrr.de/vrr/XML_DM_REQUEST'
 efaserver_backup = 'http://www.efa-bw.de/nvbw/XML_DM_REQUEST'
 
-ext_url = args.test_ext
+ext_url = args.ext_data_url
 save_msg_path = args.save_msg_path
 
 local_deps = args.local_deps
@@ -814,9 +814,10 @@ class Display:
                         if _mel not in self.meldungs and ((not _mel.efa) or (efamenabled and di < self.limit-self.meldung_hiddendeps)):
                             self.meldungs.append(_mel)
                     self.additional_update(nowtime, di, dep)
-                _brightness = _add_data.get("brightness")
-                if _brightness is not None and _brightness != matrix.brightness:
-                    matrix.brightness = _brightness
+                # only to be changed through the configuration in the future
+                # _brightness = _add_data.get("brightness")
+                # if _brightness is not None and _brightness != matrix.brightness:
+                #     matrix.brightness = _brightness
             finally:
                 self.joined = True
                 self.meldungvisible = bool(self.meldung_scroller is not None and self.meldungs)
