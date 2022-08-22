@@ -79,6 +79,7 @@ type_depmsgdata = Tuple[List[Departure], List[Meldung], type_data]
 
 def readefaxml(root: ET.Element, tz: timezone,
                ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
+               itdNoTrain_remove_dep: Optional[Set] = None, itdNoTrain_remove_msg: Optional[Set] = None,
                content_for_short_titles: bool = True, message_priority: Optional[int] = None) -> type_depmsgdata:
     deps: List[Departure] = []
     stop_messages: List[Meldung] = []
@@ -163,7 +164,7 @@ def readefaxml(root: ET.Element, tz: timezone,
         if (not cancelled) and _earlytermv:
             direction_actual = _earlytermv
             earlytermination = True
-        # Beobachtungen bzgl. Steigänderung:
+        # Beobachtungen bzgl. Steigänderung (könnten in 2022 aber schon veraltet sein!!)
         # genAttrElem mit name platformChange und value changed
         # platform bei itdDeparture entspricht originaler, platformName der neuen..
         # haben aber eigentlich unterschiedliche Bedeutungen
@@ -193,8 +194,12 @@ def readefaxml(root: ET.Element, tz: timezone,
 
         itdNoTrainText = servingline.findtext('itdNoTrain')
         if itdNoTrainText:
+            if itdNoTrain_remove_dep and any(substr in itdNoTrainText for substr in itdNoTrain_remove_dep):
+                continue
             # len(linenum) > 1, damit einstellige Liniennummern nicht als Bestandteil von Telefonnummern als schon enthalten erkannt werden
-            messages.append(itdNoTrainText if (len(linenum) > 1 and linenum in itdNoTrainText) else f"{linenum}: {itdNoTrainText}")
+            _itdNoTrain_msgtext = itdNoTrainText if (len(linenum) > 1 and linenum in itdNoTrainText) else f"{linenum}: {itdNoTrainText}"
+            if not (itdNoTrain_remove_msg and any(substr in itdNoTrainText for substr in itdNoTrain_remove_msg)):
+                messages.append(_itdNoTrain_msgtext)
 
         mot = None
         motType = int(servingline.get('motType'))
@@ -221,7 +226,7 @@ def readefaxml(root: ET.Element, tz: timezone,
                               message_priority=message_priority,
                               coursesummary=servingline.findtext('itdRouteDescText'),
                               mot=mot,
-                              platformno=dep.get('platform'),
+                              platformno=dep.get('platformName', "") or dep.get('platform'),
                               platformtype=dep.get('pointType', ""),
                               stopname=(dep.get('nameWO') or stopname),
                               stopid=dep.get('gid'),
@@ -237,8 +242,9 @@ type_getpayload = Dict[str, Union[str, int, Iterable[Union[str, int]]]]
 
 def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: int, tz: timezone,
         userealtime: bool = True, exclMOT: Optional[Set[int]] = None, inclMOT: Optional[Set[int]] = None,
-        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None, content_for_short_titles: bool = True,
-        message_priority: Optional[int] = None) -> type_depmsgdata:
+        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
+        itdNoTrain_remove_dep: Optional[Set] = None, itdNoTrain_remove_msg: Optional[Set] = None,
+        content_for_short_titles: bool = True, message_priority: Optional[int] = None) -> type_depmsgdata:
     payload: type_getpayload = {'name_dm': ifopt, 'type_dm': 'any', 'mode': 'direct', 'useRealtime': int(userealtime), 'limit': str(limit)}
     if inclMOT:
         payload['includedMeans'] = inclMOT
@@ -248,7 +254,7 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
     r.raise_for_status()
     try:
         root = ET.fromstring(r.content)
-        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, content_for_short_titles, message_priority)
+        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, itdNoTrain_remove_dep, itdNoTrain_remove_msg, content_for_short_titles, message_priority)
     except Exception:
         logger.debug(f"request data:\n{r.content}")
         raise
