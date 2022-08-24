@@ -79,6 +79,7 @@ type_depmsgdata = Tuple[List[Departure], List[Meldung], type_data]
 
 def readefaxml(root: ET.Element, tz: timezone,
                ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
+               itdNoTrain_remove_dep: Optional[Set] = None, itdNoTrain_remove_msg: Optional[Set] = None,
                content_for_short_titles: bool = True, message_priority: Optional[int] = None) -> type_depmsgdata:
     deps: List[Departure] = []
     stop_messages: List[Meldung] = []
@@ -163,7 +164,7 @@ def readefaxml(root: ET.Element, tz: timezone,
         if (not cancelled) and _earlytermv:
             direction_actual = _earlytermv
             earlytermination = True
-        # Beobachtungen bzgl. Steigänderung:
+        # Beobachtungen bzgl. Steigänderung (könnten in 2022 aber schon veraltet sein!!)
         # genAttrElem mit name platformChange und value changed
         # platform bei itdDeparture entspricht originaler, platformName der neuen..
         # haben aber eigentlich unterschiedliche Bedeutungen
@@ -193,8 +194,12 @@ def readefaxml(root: ET.Element, tz: timezone,
 
         itdNoTrainText = servingline.findtext('itdNoTrain')
         if itdNoTrainText:
+            if itdNoTrain_remove_dep and any(substr in itdNoTrainText for substr in itdNoTrain_remove_dep):
+                continue
             # len(linenum) > 1, damit einstellige Liniennummern nicht als Bestandteil von Telefonnummern als schon enthalten erkannt werden
-            messages.append(itdNoTrainText if (len(linenum) > 1 and linenum in itdNoTrainText) else f"{linenum}: {itdNoTrainText}")
+            _itdNoTrain_msgtext = itdNoTrainText if (len(linenum) > 1 and linenum in itdNoTrainText) else f"{linenum}: {itdNoTrainText}"
+            if not (itdNoTrain_remove_msg and any(substr in itdNoTrainText for substr in itdNoTrain_remove_msg)):
+                messages.append(_itdNoTrain_msgtext)
 
         mot = None
         motType = int(servingline.get('motType'))
@@ -221,7 +226,7 @@ def readefaxml(root: ET.Element, tz: timezone,
                               message_priority=message_priority,
                               coursesummary=servingline.findtext('itdRouteDescText'),
                               mot=mot,
-                              platformno=dep.get('platform'),
+                              platformno=dep.get('platformName', "") or dep.get('platform'),
                               platformtype=dep.get('pointType', ""),
                               stopname=(dep.get('nameWO') or stopname),
                               stopid=dep.get('gid'),
@@ -237,8 +242,9 @@ type_getpayload = Dict[str, Union[str, int, Iterable[Union[str, int]]]]
 
 def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: int, tz: timezone,
         userealtime: bool = True, exclMOT: Optional[Set[int]] = None, inclMOT: Optional[Set[int]] = None,
-        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None, content_for_short_titles: bool = True,
-        message_priority: Optional[int] = None) -> type_depmsgdata:
+        ignore_infoTypes: Optional[Set] = None, ignore_infoIDs: Optional[Set] = None,
+        itdNoTrain_remove_dep: Optional[Set] = None, itdNoTrain_remove_msg: Optional[Set] = None,
+        content_for_short_titles: bool = True, message_priority: Optional[int] = None) -> type_depmsgdata:
     payload: type_getpayload = {'name_dm': ifopt, 'type_dm': 'any', 'mode': 'direct', 'useRealtime': int(userealtime), 'limit': str(limit)}
     if inclMOT:
         payload['includedMeans'] = inclMOT
@@ -248,7 +254,7 @@ def getefadeps(serverurl: str, timeout: Union[int, float], ifopt: str, limit: in
     r.raise_for_status()
     try:
         root = ET.fromstring(r.content)
-        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, content_for_short_titles, message_priority)
+        result = readefaxml(root, tz, ignore_infoTypes, ignore_infoIDs, itdNoTrain_remove_dep, itdNoTrain_remove_msg, content_for_short_titles, message_priority)
     except Exception:
         logger.debug(f"request data:\n{r.content}")
         raise
@@ -516,6 +522,17 @@ def getnina(url: str, ags: str, timeout: Union[int, float], tz: timezone, symbol
     return [], messages, []
 
 
+def _json_messages(json_msg: List[Dict[str, Any]]) -> List[Meldung]:
+    # priority not correctly implemented for now
+    messages = [
+        Meldung(
+            symbol=msg.get("symbol"),
+            text=msg.get("text"),
+            color=msg.get("color"),
+            priority={None: None, "scroll": 5, "switch": 15, "perma" : 30}.get(msg.get("priority"))
+        ) for msg in json_msg]
+    return messages
+
 def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[str] = None) -> type_depmsgdata:
     messages: List[Meldung] = []
     data: type_data = {}
@@ -526,32 +543,9 @@ def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[
         r.raise_for_status()
         try:
             requestdata = r.json()
-            # example:
-            # {
-            #     "messages": [
-            #                     {
-            #                         "symbol": "info",
-            #                         "text": "Testinformation",
-            #                         "color": undefined
-            #                     },
-            #                     {
-            #                         "symbol": "ad",
-            #                         "text": "Testwerbung",
-            #                         "color": "#00FFFF"
-            #                     }
-            #                 ],
-            #     "config": {
-            #                   "brightness": 15
-            #               },
-            #     "command": "shutdown 19:30"
-            # }
-            # ("command" sollte nach der "auswertung" wieder leer gesetzt werden..)
-            # todo: mit dem GET z. B. logdaten mitsenden; auf dem Server irgendwas laufen haben
-            # , was mit https+basicauth+sqlite+weboberflaeche oderso die konfiguration/beobachtung ermoeglicht
-            # + guten weg finden, run.env/run.sh anzupassen, langfristig
-            _json_msg = requestdata.get("messages")
+            _json_msg = requestdata.get("texts")
             if _json_msg is not None:
-                messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
+                messages = _json_messages(_json_msg)
             if save_msg_path:
                 _saved = ""
                 _dump = json_dumps(_json_msg or "[]")
@@ -563,41 +557,13 @@ def getextmsgdata(url: str, timeout: Union[int, float], save_msg_path: Optional[
                 if _saved != _dump:
                     with open(save_msg_path, 'w') as f:
                        f.write(_dump)
-            _json_config = requestdata.get("config")
-            if _json_config is not None:
-                data = _json_config
-            command = requestdata.get("command")
-            if command:
-                if command.startswith("shutdown "):
-                    _s = command.split(" ")
-                    if len(_s) == 2:
-                        logger.info(f"calling {_s}")
-                        call(_s)
-                    else:
-                        logger.warning(f"unknown shutdown command: {_s}")
-                elif command == "rebootnow":
-                    logger.info("rebooting")
-                    call(["reboot"])
-                elif command == "reload":
-                    logger.info("requested reload")
-                    if call(["systemctl", "is-active", "matrix"]) == 0:
-                        call(["systemctl", "restart", "matrix"])
-                    else:
-                        call(["systemctl", "start", "matrix"])
-                        raise KeyboardInterrupt
-                elif command == "gitpull":
-                    _e = call(["sudo", "-u", "pi", "git", "pull"])
-                    if _e == 0:
-                        logger.success("git pull")
-                    else:
-                        logger.warning(f"git pull failed with exit code {_e}")
-                else:
-                    logger.warning(f"unknown command: {command}")
+            # _json_config = requestdata.get("config")
+            # if _json_config is not None:
+            #     data = _json_config
         except Exception:
             logger.debug(f"request data:\n{r.content}")
             raise
     return [], messages, data
-
 
 def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
     messages: List[Meldung] = []
@@ -609,7 +575,7 @@ def getlocalmsg(save_msg_path: str) -> type_depmsgdata:
         pass
     else:
         _json_msg = json_loads(_saved)
-        messages = [Meldung(symbol=msg.get("symbol"), text=msg.get("text"), color=msg.get("color"), priority=msg.get("priority")) for msg in _json_msg]
+        messages = _json_messages(_json_msg)
     return [], messages, {}
 
 

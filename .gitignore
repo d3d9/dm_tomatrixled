@@ -1,3 +1,7 @@
+.*_action
+.completed_data
+service/run.env
+
 .vscode/
 log/
 

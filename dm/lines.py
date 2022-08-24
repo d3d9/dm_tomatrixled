@@ -432,15 +432,20 @@ class StandardDepartureLine:
 
         if self.platformopt is not None and self.platformopt.width > 0 and self.dep.platformno:
             platprefix = self.dep.platformtype or ("Gl." if self.dep.mot in trainMOT else "Bstg.")
+            full_str = platprefix + str(self.dep.platformno)
+            short_str = str(self.dep.platformno)
+            if any((hit := _) in short_str for _ in {"Gleis", "Gl.", "Bstg.", "Bstg", "Bussteig", "Bahnsteig", "Steig", "Platform", "Pl."}):
+                full_str = short_str
+                short_str = short_str.replace(hit, "").strip()
             platform_font, platform_str, platpx, platform_verticaloffset = fittext(
-                platprefix + str(self.dep.platformno),
+                full_str,
                 self.platformopt.width,
                 self.platform_min,
                 self.platform_max,
                 self.platformopt.normalFont,
                 self.platformopt.smallFont,
                 smallpxoffset=self.platformopt.normalsmalloffset,
-                alt_text=str(self.dep.platformno))
+                alt_text=short_str)
             platformchanged = self.dep.platformno_planned and (self.dep.platformno_planned != self.dep.platformno)
             platform_color = self.platformopt.texthighlightColor if platformchanged else self.platformopt.textColor
             platform_xpos = self.platform_max - platpx + 1
