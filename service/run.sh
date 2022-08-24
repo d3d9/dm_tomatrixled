@@ -31,7 +31,7 @@ fi
 echo "selection: $selection"
 case $selection in
 feuerwache)
-  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --ext-data-url $ext_data_url --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
+  echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 340 --sleep-interval 0.023 --ext-data-url $ext_data_url --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW" --led-pwm-lsb-nanoseconds 150 # --no-rt-msg -1
   ;;
 emilienplatz)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2075:0:1 -b$brightness -er1 -l8 -f8 --update-steps 330 --ignore-infoid 45828_HST --ignore-infoid 54354_HST

@@ -271,7 +271,7 @@ realtimecolors = RealtimeColors(no_realtime=graphics.Color(190, 190, 190),
                                 negative_delay=graphics.Color(0, 255, 115))
 
 graytextColor = graphics.Color(190, 190, 190)
-lighttextColor = graphics.Color(100, 100, 100)
+lighttextColor = graphics.Color(120, 120, 120)
 barColor = graphics.Color(8, 8, 8)
 if options.brightness < 15:
     linebgColor = graphics.Color(0, 12, 12)
