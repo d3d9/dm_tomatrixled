@@ -32,7 +32,7 @@ fi
 echo "selection: $selection"
 case $selection in
 moers)
-  echo $moersreplace | xargs python3.9 dm_tomatrixled.py -b$brightness -e -l8 -f8 --update-steps 330 --led-parallel 3 --led-slowdown-gpio 2 -t --min-slightdelay 3 --led-limit-refresh 144 --itdNoTrain-remove-dep "TaxiBus" --config-system-url $config_system_url --config-system-id $config_system_id --config-system-key $config_system_key --test-ext "https://d3d9.xyz:8008/data?id=moers-rathaus" -s de:05170:36298 --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "051700000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
+  echo $moersreplace | xargs python3.9 dm_tomatrixled.py -b$brightness -e -l8 -f8 --update-steps 330 --led-parallel 3 --led-slowdown-gpio 2 -t --min-slightdelay 3 --led-limit-refresh 144 --itdNoTrain-remove-dep "TaxiBus" --config-system-url $config_system_url --config-system-id $config_system_id --config-system-key $config_system_key --ext-data-url $ext_data_url -s de:05170:36298 --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "051700000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
   ;;
 feuerwache)
   echo $hagenreplace | xargs ./dm_tomatrixled.py -s de:05914:2216 -b$brightness -er0 -w16 -l8 -f8 --led-slowdown-gpio 2 --update-steps 330 --sleep-interval 0.025 --ext-data-url $ext_data_url --hst-colors --platform-width 13 --local-deps "./feuerwache.csv" --nina-url "https://warnung.bund.de/api31/dashboard/" --nina-ags "059140000000" --nina-ignore-msgType "Update" --nina-ignore-msgType "Cancel" --nina-ignore-id "lhp.HOCHWASSERZENTRALEN.DE.NW"
