@@ -126,6 +126,9 @@ if args.min_negativedelay > -1:
 if args.max_minutes < -1:
     parser.error("--max-minutes must be >= -1")
 
+min_timeout = 10
+servertimeout = max(min_timeout, (args.sleep_interval*args.update_steps)/2)
+
 CONFIG_SYSTEM = False
 SYSTEM_URL = args.config_system_url
 SYSTEM_ID = args.config_system_id
@@ -142,10 +145,10 @@ def heartbeat_request(url, dfi_id, key, log=[], get_system_data=tuple(), loaded_
     # global config_version
     payload = {"action": "dfi_heartbeat", "id": dfi_id, "key": key} #  , "config_version": dm.config.version}
     if log:
-        payload["log"] = _ansi_html.convert("".join(log), full=False)
+        payload["log"] = log if log == "unchanged" else  _ansi_html.convert("".join(log), full=False)
     if get_system_data:
         system_data = {}
-        command = lambda input: check_output(input, shell=True).decode(stdout.encoding).strip()
+        command = lambda input: check_output(input + " 2>/dev/null", shell=True).decode(stdout.encoding).strip()
         for key in get_system_data:
             value = None
             if key == "temperature_cpu":
@@ -159,13 +162,13 @@ def heartbeat_request(url, dfi_id, key, log=[], get_system_data=tuple(), loaded_
         payload["loaded_data"] = dumps(loaded_data)
     if going_offline:
         payload["going_offline"] = 1
-    r = post(url, data=payload)
+    r = post(url, timeout=servertimeout, data=payload)
     try:
         r.raise_for_status()
         response = r.json()
         return response
     except Exception as e:
-        logger.exception(f"{r.content}")
+        raise e
 
 
 ### Logging
@@ -178,7 +181,7 @@ if datafilelog:
     logger.add(sink="./log/data.txt", level="TRACE", backtrace=False, enqueue=True, compression="gz", rotation="50 MB", filter=lambda r: r["level"] == "TRACE")
 
 limited_log_limit = 20
-limited_log_level = "TRACE" # "INFO"
+limited_log_level = "INFO"
 limited_log = []
 def add_limited_log(msg):
     global limited_log, limited_log_limit
@@ -446,8 +449,6 @@ header_spacest = 1
 
 countdownlowerlimit = -9
 
-min_timeout = 10
-servertimeout = max(min_timeout, (args.sleep_interval*args.update_steps)/2)
 tz = datetime.utcnow().astimezone().tzinfo
 
 call_args_retries_main = 4
@@ -739,6 +740,8 @@ class Display:
             if self.prev_limited_log != limited_log:
                 hb_args["log"] = limited_log
                 self.prev_limited_log = limited_log.copy()
+            else:
+                hb_args["log"] = "unchanged"
             if not self.heartbeat_detail_skip_remaining:
                 hb_args["get_system_data"] = ("temperature_cpu", "uptime")
                 # hb_args["loaded_data"] = ...
@@ -756,7 +759,7 @@ class Display:
                 response = self.pe_hb.result()
                 action = response.get('action')
             except Exception as e:
-                logger.exception("exception from heartbeat")
+                logger.warning("exception from heartbeat: " + str(e))
             else:
                 if action is False or self.action_pending != action:
                     # hier self.action nur dann aufrufen, wenn "sich was getan hat", ansonsten wird es bei action_pending mit dem action_step_pending regelmäßig aufgerufen
