@@ -296,6 +296,7 @@ ppm_earlyterm = Image.open(f"{ppmdir}icon-earlyterm.ppm")
 ppm_no_rt = Image.open(f"{ppmdir}icon-no-rt.ppm")
 ppm_no_deps = Image.open(f"{ppmdir}icon-no-deps.ppm")
 ppm_fhswf = Image.open(f"{ppmdir}icon-fhswf.ppm")
+ppm_moers = Image.open(f"{ppmdir}icon-moers.ppm")
 
 meldungicons = {
     "info": ppm_info,
@@ -308,6 +309,7 @@ meldungicons = {
     "nort": ppm_no_rt,
     "nodeps": ppm_no_deps,
     "fhswf": ppm_fhswf,
+    "moers": ppm_moers,
 }
 
 symtextoffset = fonttext.height-fonttext.baseline
