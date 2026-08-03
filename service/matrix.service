@@ -6,7 +6,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/pi/dm_tomatrixled
 EnvironmentFile=/home/pi/dm_tomatrixled/service/run.env
-ExecStart=/bin/bash /home/pi/dm_tomatrixled/service/run.sh
+ExecStart=/bin/bash -c 'source .venv/bin/activate && ./service/run.sh'
 KillSignal=SIGINT
 Restart=on-failure
 [Install]
