@@ -1,6 +1,6 @@
 #!/bin/bash
 
-hagenreplace='--place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --keep-place-string "Hagen Hauptbahnhof" --dest-replacement "Hagen Hauptbahnhof%Hagen Hbf"'
+hagenreplace='--place-string ", Hagen (Westf)" --place-string "Hagen " --place-string "HA-" --keep-place-string-for "Hagen Hauptbahnhof" --keep-place-string-for "Hagen Hbf" --dest-replacement "Hagen Hauptbahnhof%Hagen Hbf"'
 brightness=${brightness:-20}
 
 if [ ! $(id -u) -eq 0 ]; then
