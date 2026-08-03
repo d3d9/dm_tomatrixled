@@ -155,6 +155,10 @@ def heartbeat_request(url, dfi_id, key, log=[], get_system_data=tuple(), loaded_
                 value = command("vcgencmd measure_temp | sed -e 's/temp=//'")
             elif key == "uptime":
                 value = command("uptime -p | sed -e 's/up //'")
+            elif key == "wifi_up_down":
+                value = command("awk ' { print FILENAME\" \"$0 } ' /sys/class/net/wlan*/operstate")
+            elif key == "wifi_quality":
+                value = command("iwconfig")
             if value is not None:
                 system_data[key] = str(value)
         payload["system_data"] = dumps(system_data)
@@ -448,6 +452,7 @@ spaceDr = 1
 header_spacest = 1
 
 countdownlowerlimit = -9
+
 
 tz = datetime.utcnow().astimezone().tzinfo
 
@@ -746,7 +751,7 @@ class Display:
             else:
                 hb_args["log"] = "unchanged"
             if not self.heartbeat_detail_skip_remaining:
-                hb_args["get_system_data"] = ("temperature_cpu", "uptime")
+                hb_args["get_system_data"] = ("temperature_cpu", "uptime", "wifi_up_down", "wifi_quality")
                 # hb_args["loaded_data"] = ...
                 self.heartbeat_detail_skip_remaining = self.heartbeat_detail_skip
             else:
