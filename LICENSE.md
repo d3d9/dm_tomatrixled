@@ -1,4 +1,4 @@
-Copyright (C) 2018  Kevin Arutyunyan
+Copyright (C) 2018–2026 kibaa
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@ with this program.  If not, see <http://gnu.org/licenses/gpl-2.0.txt>
 __Parts of this project not related to the LED-matrix library and without
 an explicitly stated license can be reused under the ISC license:__
 
-Copyright 2018 Kevin Arutyunyan
+Copyright 2018–2026 kibaa
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
